@@ -1,0 +1,903 @@
+from typing import Any, Optional, final, Union
+
+from lightning.pytorch.utilities.types import LRSchedulerTypeUnion
+import lightning
+import torch
+from torch.utils.data import DataLoader
+import torch.nn as nn
+
+from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save
+import os, copy, operator
+import pandas as pd
+
+class DirectoryHandler:
+    def __init__(self, 
+                 load_data_abs_dir: str,
+                 data_file_name: str,
+                 vocab_file_name: Optional[str] = None,
+                 load_config_abs_dir: Optional[str] = None,
+                 load_ckpt_abs_path: Optional[str] = None,
+                 output_abs_dir: Optional[str] = None,
+                 create_run_under_abs_dir: Optional[str] = None, # will create a new output_dir if output_abs_dir is None
+                 training_name: Optional[str] = None
+                 ):
+        """
+        Args:
+            `cwd` (str): used only for specifying the dir to store the run, this can be overwritten by `output_abs_dir`
+            `data_abs_dir` (str): the absolute path to the directory containing `data_file_name` and `vocab_file_name`
+            `data_file_name` (str): the name of the data file under `data_abs_dir`
+            `vocab_file_name` (str): the name of the vocab file under `data_abs_dir`
+            `output_abs_dir` (str): the absolute path to the output directory. If not set, it will be set by the call to the `set_output_dir` function by the TrainingManager
+            `load_run_abs_dir` (str): the absolute path to the directory containing the configurations and the checkpoint to load
+            `load_ckpt_name` (str): the name of the checkpoint to load under `load_run_abs_dir`
+        """
+        self.load_data_abs_dir = load_data_abs_dir
+        self.data_file_name = data_file_name
+        self.vocab_file_name = vocab_file_name
+        self.load_config_abs_dir = load_config_abs_dir
+        self.load_ckpt_abs_path = load_ckpt_abs_path
+        self.output_abs_dir = output_abs_dir
+        self.create_run_under_abs_dir = create_run_under_abs_dir
+        self.output_abs_dir = None
+        self.training_name = training_name
+    
+    @classmethod
+    def load_from_file(cls, path: str):
+        return cls(**clever_load(path))
+    
+    def save_to_file(self, path: str):
+        # get a dictionary of the attributes
+        clever_save(self.__dict__, path)
+    
+    @property
+    def data_path(self):
+        return os.path.join(self.load_data_abs_dir, self.data_file_name)
+    
+    @property
+    def vocab_path(self):
+        return os.path.join(self.load_data_abs_dir, self.vocab_file_name) if self.vocab_file_name is not None else None
+    
+    @property
+    def load_config_dir(self):
+        return self.load_config_abs_dir
+
+    @property
+    def load_ckpt_path(self):
+        return self.load_ckpt_abs_path
+    
+    @property
+    def output_dir(self):
+        if self.output_abs_dir is None:
+            raise ValueError("output_abs_dir is not set yet. Please call TrainingManager to set the output directory.")
+        return self.output_abs_dir 
+
+    @property
+    def output_config_dir(self):
+        return os.path.join(self.output_abs_dir, "configurations")
+    
+    @property
+    def output_dirhandler_path(self):
+        return os.path.join(self.output_config_dir, "dirhandler.yaml")
+    
+    def set_output_dir(self, training_name_suggest: str):
+        if self.training_name is None:
+            if self.output_abs_dir is None:
+                # create a new output directory with the given training_name_suggest
+                self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", training_name_suggest)
+                self.training_name = training_name_suggest
+            else:
+                self.training_name = os.path.basename(self.output_abs_dir)
+                # use the given output_abs_dir
+        else:
+            self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", self.training_name)
+        if not os.path.exists(self.output_abs_dir):
+            os.makedirs(self.output_abs_dir)
+            print(f"Create output directory: {self.output_abs_dir}")
+            
+
+class Vocab:
+    def __init__(self, input: Union[list, dict]):
+        if isinstance(input, list):
+            self.vocab = {}
+            # get the unique tokens in input
+            tokens = set(input)
+            # create a vocab from the tokens
+            self.vocab = {token: idx for idx, token in enumerate(tokens)}
+        elif isinstance(input, dict):
+            self.vocab = input
+        self.reverse_vocab = {v: k for k, v in self.vocab.items()}
+        
+    @classmethod
+    def load_from_file(cls, path: str):
+        return cls(clever_load(path))
+
+    def __len__(self):
+        return len(self.vocab)
+    
+    def __getitem__(self, key):
+        return self.vocab[key]
+    
+    def __contains__(self, key):
+        return key in self.vocab
+    
+    def __iter__(self):
+        return iter(self.vocab)
+    
+    def save_to_file(self, path: str):
+        clever_save(self.vocab, path)
+
+class ConfigBase(EasyDict):
+    """
+    Base class for configuration. To adapt to your own setting, you can override prepare() function while super().prepare() at the beginning.
+    """
+    def __init__(self, config_dir: Optional[str] = None):
+        """
+        If config_dir is not None, the configurations in config_dir will be loaded as well as the default configurations.
+        """
+        super().__init__()
+        self.model_config = EasyDict()
+        self.train_config = EasyDict()
+        self.data_config = EasyDict()
+        
+        # get current file's directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # load default configurations
+        self.model_config.update_from_file(os.path.join(current_dir, "configurations", "model_config_default.yaml"))
+        self.train_config.update_from_file(os.path.join(current_dir, "configurations", "train_config_default.yaml"))
+        self.data_config.update_from_file(os.path.join(current_dir, "configurations", "data_config_default.yaml"))
+        
+        if config_dir is not None:
+            # if config_dir + "model_config.yaml" exists, update model_config
+            if os.path.exists(os.path.join(config_dir, "model_config.yaml")):
+                self.model_config.update_from_file(os.path.join(config_dir, "model_config.yaml"))
+            # if config_dir + "train_config.yaml" exists, update train_config
+            if os.path.exists(os.path.join(config_dir, "train_config.yaml")):
+                self.train_config.update_from_file(os.path.join(config_dir, "train_config.yaml"))
+            # if config_dir + "data_config.yaml" exists, update data_config
+            if os.path.exists(os.path.join(config_dir, "data_config.yaml")):
+                self.data_config.update_from_file(os.path.join(config_dir, "data_config.yaml"))
+        # sync
+        self.prepare()
+
+    @final 
+    def save_to_dir(self, save_dir: str):
+        """
+        Save the configuration to data_config.yaml, model_config.yaml, and train_config.yaml under configurations folder in save_dir.
+        """
+        self.data_config.save_to_file(os.path.join(save_dir, "data_config.yaml"))
+        self.model_config.save_to_file(os.path.join(save_dir, "model_config.yaml"))
+        self.train_config.save_to_file(os.path.join(save_dir, "train_config.yaml"))
+    
+    @final
+    def prepare(self):
+        """
+        Customized hook for prepare. You can override this function to add more configurations.
+        """
+        pass
+
+class PipelineBase(lightning.LightningModule):
+    """
+    PipelineBase is a base class for creating a training pipeline using PyTorch Lightning. 
+    It provides methods for configuring optimizers, learning rate schedulers, and handling 
+    training, validation, and test steps. It also includes hooks for custom behavior at 
+    various stages of the training process.
+    Attributes:
+        train_config (EasyDict): Configuration for training.
+        training_model (nn.Module): The model to be trained.
+        loss_p_model (nn.Module): The primary loss model.
+        loss_n_model (Optional[nn.Module]): The secondary loss model, if any.
+        last_epoch (int): Tracks the last epoch to detect changes in the current epoch.
+    Methods:
+        from_existing_obj(cls, existing_pipeline: 'PipelineBase'):
+            Initialize from an existing PipelineBase object.
+        configure_optimizers():
+            Configure the optimizer and learning rate scheduler.
+        lr_scheduler_step(scheduler: LRSchedulerTypeUnion, metric: Any) -> None:
+            Step the learning rate scheduler.
+        _epoch_end_hook():
+            Force the epoch end hook to be called at the end of each epoch.
+        _mask_select(x, mask):
+            Select the masked position of x.
+        training_step(batch, batch_idx):
+            Perform a training step.
+        validation_step(batch, batch_idx):
+            Perform a validation step.
+        test_step(batch, batch_idx):
+            Perform a test step.
+        _Step(batch, batch_idx, step_type: str):
+            Perform a forward pass and calculate losses.
+        on_before_optimizer_step(optimizer: torch.optim.Optimizer):
+            Called before the optimizer step.
+        training_step_end(training_step_outputs):
+            Handle the end of a training step.
+        validation_step_end(validation_step_outputs):
+            Handle the end of a validation step.
+        test_step_end(test_step_outputs):
+            Handle the end of a test step.
+        epoch_end_hook_fn():
+            Custom behavior at the end of each epoch.
+    """
+    def __init__(
+        self, 
+        train_config: EasyDict, 
+        training_model: nn.Module,
+        loss_p_model: nn.Module,
+        loss_n_model: Optional[nn.Module] = None,
+    ):
+        super(PipelineBase, self).__init__()
+        self.train_config = train_config
+        self.training_model = training_model
+        self.loss_p_model = loss_p_model
+        self.loss_n_model = loss_n_model
+        
+        self.last_epoch = -1 # to track is there is a change in self.current_epoch for calling on_my_epoch_end
+    
+    # initialize from an existing PipelineBase object
+    @classmethod
+    def from_existing_obj(cls, existing_pipeline: 'PipelineBase'):
+        return cls(
+            config=existing_pipeline.config,
+            training_model=existing_pipeline.training_model,
+            loss_p_model=existing_pipeline.loss_p_model,
+            loss_n_model=existing_pipeline.loss_n_model,
+        )
+
+    ## --------- default methods --------- ##
+    def configure_optimizers(self):
+        # Configure the optimizer.
+        if self.train_config.optimizer == "SGD":
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.train_config.learning_rate,
+                momentum=self.train_config.momentum,
+                weight_decay=self.train_config.weight_decay,
+            )
+        elif self.train_config.optimizer == "Adam":
+            optimizer = torch.optim.Adam(
+                self.parameters(),
+                lr=self.train_config.learning_rate,
+            )
+        elif self.train_config.optimizer == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.train_config.learning_rate,
+                weight_decay=self.train_config.weight_decay
+            )
+        else:
+            raise NotImplementedError(
+                f"Optimizer {self.train_config.optimizer} is not implemented!"
+            )
+            
+        # Configure the learning rate scheduler.
+        if self.train_config.lr_scheduler == "cosine":
+            cosine_scheduler_config = self.train_config.cosine_scheduler_config
+            scheduler = CosineAnnealingWarmup(
+                optimizer=optimizer,
+                warmup_steps=cosine_scheduler_config.warmup_steps,
+                learning_rate=self.train_config.learning_rate,
+                min_lr=cosine_scheduler_config.min_lr,
+                lr_decay_steps=cosine_scheduler_config.lr_decay_steps,
+            )
+        elif self.train_config.lr_scheduler == "step":
+            StepLR_config = self.train_config.StepLR_scheduler_config
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer,
+                step_size=StepLR_config.step_size,
+                gamma=StepLR_config.gamma,
+            )
+        else:
+            # use no scheduler
+            scheduler = None
+        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+    
+    def lr_scheduler_step(
+            self,
+            scheduler: LRSchedulerTypeUnion,
+            metric: Any,
+    ) -> None:
+        scheduler.step()
+    
+    @final
+    def _epoch_end_hook(self):
+        """ 
+        force the `on_my_epoch_end()` to be called at the end of each epoch, user can then override the `on_my_epoch_end()` function
+        """
+        if self.current_epoch != self.last_epoch: # detect change in the current_epoch
+            self.last_epoch = self.current_epoch
+            if self.current_epoch != 0:
+                self.epoch_end_hook_fn()
+    
+    @final
+    def _mask_select(self, x, mask):
+        """
+        select the masked position of `x` to compute the loss.
+        """
+        if mask is None:
+            return x
+        
+        return x[mask] # select the first dimension of x where mask is True
+        # if x.dim() == mask.dim() + 1:
+        #     x_reshaped = x.view(-1, x.size(-1))
+        #     return x_reshaped[mask.view(-1)]
+        # else:
+        #     assert x.dim() == mask.dim(), "The dimension of x and mask should be broadcastable"
+        #     return torch.masked_select(x, mask)
+        
+    @final
+    def training_step(self, batch, batch_idx):
+        ## --------- on_my_epoch_end_hook --------- ##
+        self._epoch_end_hook()
+        
+        loss_p, loss_n, output = self._Step(batch, batch_idx, "train")
+
+        ## --------- log parameter norm --------- ##
+        param_norm = 0.0
+        for parameter in self.training_model.parameters():
+            param_norm += torch.linalg.norm(parameter)
+        self.log("param_norm", param_norm, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+             
+        step_dict = {'loss': loss_p + loss_n, 'loss_p':loss_p, 'loss_n':loss_n, 'output':output, 'batch':batch}
+        self.training_step_end(step_dict)
+        
+        return step_dict
+    
+    @final
+    def validation_step(self, batch, batch_idx):
+        """
+        The validation step for the model where the model is automatically put in eval mode.
+
+        Args:
+            batch (_type_): _description_
+            batch_idx (_type_): _description_
+        """
+        # forward pass
+        loss_p, loss_n, output = self._Step(batch, batch_idx, "val")
+        
+        step_dict = {'loss': loss_p + loss_n, 'loss_p':loss_p, 'loss_n':loss_n, 'output':output, 'batch':batch}
+        self.validation_step_end(step_dict)
+        return step_dict
+    
+    @final
+    def test_step(self, batch, batch_idx):
+        """
+        The test step for the model where the model is automatically put in eval mode.
+        
+        Args:
+            batch (_type_): _description_
+            batch_idx (_type_): _description_
+        """
+        # forward pass
+        loss_p, loss_n, output = self._Step(batch, batch_idx, "test")
+        
+        step_dict = {'loss': loss_p + loss_n, 'loss_p':loss_p, 'loss_n':loss_n, 'output':output, 'batch':batch}
+        self.test_step_end(step_dict)
+        return step_dict
+
+    def _unpack_batch(self, batch):
+        """
+        Unpacks a batch of data into its components.
+
+        Parameters:
+            batch (tuple): A tuple containing the batch data. The batch can have:
+                - 2 elements: (x, y)
+                - 3 elements: (x, y, mask)
+                - More than 3 elements: (x, y, mask, batch_info)
+
+        Returns:
+            tuple: A tuple containing:
+                - x: The input data.
+                - y: The target data.
+                - mask: A mask tensor indicating valid data points.
+                - batch_info: Additional batch information if present, otherwise None.
+        """
+        if len(batch) == 2:
+            x, y = batch
+            mask = torch.ones(x.shape[:2], dtype=torch.bool)
+            batch_info = None
+        elif len(batch) == 3:
+            x, y, mask = batch
+            batch_info = None
+        else:
+            # take x, y, mask as the first three elements in the batch
+            x, y, mask = batch[:3]
+            batch_info = batch[3:]
+        return x, y, mask, batch_info
+    
+    def len_batch(self, batch):
+        x = batch[0]
+        return len(x)
+        
+    ## ----------------- Cumstomized hooks ----------------- ##
+    def _Step(self, batch, batch_idx, step_type: Optional[str] = None):
+        ## --------- forward pass --------- ##
+        
+        x, y, mask, batch_info = self._unpack_batch(batch)
+        # x (batch_size, seq_len, Optional)
+        # y (batch_size, seq_len, Optional)
+        # mask (batch_size, seq_len)
+
+        output = self.training_model(x)
+
+        # compute the loss for the masked position
+        y_msk_p = self._mask_select(y, mask)
+        output_msk_p = self._mask_select(output, mask)
+        loss_p = self.loss_p_model(output_msk_p, y_msk_p)
+
+        # compute the loss for the non-masked position
+        y_msk_n = self._mask_select(y, ~mask)
+        output_msk_n = self._mask_select(output, ~mask)
+
+        if len(y_msk_n) > 0 and self.loss_n_model is not None:
+            loss_n = self.loss_n_model(output_msk_n, y_msk_n)
+        else:
+            loss_n = 0.0
+
+        ## --------- log training loss --------- ##
+        if step_type is not None:
+            if self.loss_n_model is not None:
+                self.log(step_type + "_loss_n", loss_n, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+                self.log(step_type + "_loss_p", loss_p, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+            self.log(step_type + "_loss", loss_p + loss_n, prog_bar=True, on_epoch=True, logger=True, batch_size=self.len_batch(batch)) # should always log the total loss as 'val_loss' is used for ckpt saving
+            # don't change the log name step_type + '_loss' as it is used for ckpt saving
+
+        return loss_p, loss_n, output
+    
+    def on_before_optimizer_step(self, optimizer: torch.optim.Optimizer):
+        """ 
+        This function is called before the optimizer step.
+        You can override this function to do something before the optimizer step.
+
+        Args:
+            optimizer (torch.optim.Optimizer): the optimizer
+        """
+        norms = lightning.pytorch.utilities.grad_norm(self.training_model, norm_type=2)
+        self.log_dict(norms)
+
+    def training_step_end(self, training_step_outputs):
+        """
+        Designed for 1. logging, 2. visualization, 3. saving, 4. etc.
+ 
+        You can override this function yourself but remember to include the following lines.
+        ```
+        loss = training_step_outputs['loss']
+        loss_p = training_step_outputs['loss_p']
+        loss_n = training_step_outputs['loss_n']
+        output = training_step_outputs['output']
+        batch = training_step_outputs['batch']
+        x, y, mask,  = batch
+        ```
+        Make sure that the return is the loss you want to optimize
+        """
+        # return training_step_outputs['loss_p'] + training_step_outputs['loss_n']
+    
+    def validation_step_end(self, validation_step_outputs):
+        return self.training_step_end(validation_step_outputs)
+    
+    def test_step_end(self, test_step_outputs):
+        return self.training_step_end(test_step_outputs)
+
+    def epoch_end_hook_fn(self):
+        """
+        Do something at the end of each epoch. Feel free to override this function.
+        """
+        pass
+
+
+class DataModuleBase(lightning.LightningDataModule):
+    """
+    DataModuleBase is a base class for creating a data module using PyTorch Lightning.
+    It provides methods for setting up the data, creating data loaders, and transforming batches.
+    Attributes:
+        data_config (EasyDict): Data configuration.
+        dir_handler (DirectoryHandler): Directory handler for loading and saving data.
+        vocab (Optional[Vocab]): Vocabulary for the data.
+        data_train (Any): Training data.
+        data_val (Any): Validation data.
+        data_test (Any): Test data.
+        data_predict (Any): Prediction data.
+    Methods:
+        setup(stage: str):
+            Setup the data module for the given stage.
+        train_dataloader():
+            Create the training data loader.
+        val_dataloader():
+            Create the validation data loader.
+        test_dataloader():
+            Create the test data loader.
+        predict_dataloader():
+            Create the prediction data loader.
+        on_before_batch_transfer(batch, dataloader_idx: int):
+            Called before transferring the batch to the device.
+        state_dict():
+            Return the state dictionary.
+        load_state_dict(state_dict):
+            Load the state dictionary.
+        prepare_data():
+            Download and prepare the data.
+        train_val_test_split(data):
+            Split the data into training, validation, and test sets.
+        transform_batch(batch, dataloader_idx):
+            Transform the batch before sending it to the model.
+        transfer_batch_to_device(batch, device, dataloader_idx):
+            Transfer the batch to the device.
+        """
+    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandler):
+        """
+        Args:
+            data_config (EasyDict): data configuration
+            dir_handler (DirectoryHandler): directory handler
+        """
+        super().__init__()
+        self.data_config = data_config
+        self.dir_handler = dir_handler
+        
+        if not os.path.exists(self.dir_handler.vocab_path):
+            self.vocab = None
+        else:
+            self.vocab = Vocab(clever_load(self.dir_handler.vocab_path))
+
+    @final
+    def setup(self, stage: str):
+        if stage == "fit":
+            data_full = clever_load(self.dir_handler.data_path)
+            self.data_train, self.data_val, self.data_test = self.train_val_test_split(data_full)
+        
+        if stage == "test":
+            # if self does not have data_test, then use train_val_test_split to split data
+            if not hasattr(self, "data_test"):
+                data_full = clever_load(self.dir_handler.data_path)
+                self.data_train, self.data_val, self.data_test = self.train_val_test_split(data_full)
+
+        if stage == "predict":
+            self.data_predict = clever_load(self.dir_handler.data_path)
+
+    @final
+    def train_dataloader(self):
+        return DataLoader(self.data_train, 
+                          batch_size=self.data_config.batch_size, 
+                          collate_fn=lambda x: x,
+                          shuffle=True)
+    
+    @final
+    def val_dataloader(self):
+        return DataLoader(self.data_val, 
+                          batch_size=self.data_config.batch_size, 
+                          collate_fn=lambda x: x,
+                          shuffle=False)
+    
+    @final
+    def test_dataloader(self):
+        return DataLoader(self.data_test, 
+                          batch_size=self.data_config.batch_size, 
+                          collate_fn=lambda x: x,
+                          shuffle=False)
+    
+    @final
+    def predict_dataloader(self):
+        return DataLoader(
+            self.data_predict, 
+            batch_size=self.data_config.batch_size, 
+            collate_fn=lambda x: x,
+            shuffle=False)
+    
+    @final
+    def on_before_batch_transfer(self, batch, dataloader_idx: int):
+        """
+        The functionality of this function is deferred to the method transfer_batch_to_device. Don't override this function.
+        """
+        return self.transform_batch(batch, dataloader_idx)
+
+    ## ----------------- Cumstomized functions ----------------- ##
+    def state_dict(self):
+        """
+        Customized state_dict function. You can override this function to save more states.
+        Usually, you don't need to do so unless you define more states in the __init__ function.
+        """
+        state = {}
+        return state
+
+    def load_state_dict(self, state_dict):
+        """
+        Customized load_state_dict function. You can override this function corresponding to the state_dict function.
+        """
+        pass
+
+    def prepare_data(self):
+        """ 
+        download, do some global things here, but you can't return anything
+        """
+        pass 
+
+    def train_val_test_split(self, data):
+        """
+        Split data into train, validation, and test sets. Feel free to override this function. You should return data_train, data_val, data_test. Here is an example:
+        
+        ```python
+        data_train, data_test = random_split(data, [int(0.9*len(data)), len(data)-int(0.9*len(data))])
+        data_train, data_val = random_split(data_train, [int(0.9*len(data_train)), len(data_train)-int(0.9*len(data_train))])
+        ```
+        """
+        raise NotImplementedError("You should implement the train_val_test_split function.")
+        return data_train, data_val, data_test
+    
+    def transform_batch(self, batch, dataloader_idx):
+        """
+        Transform batch before sending to the model
+        Here, users are expected to transform the batch into three tensors: 
+            x (batch_size, seq_len, Optional),
+            y (batch_size, seq_len, Optional), 
+            (Optional) mask (batch_size, seq_len) indicating where the loss should be computed
+        You should return a tuple (x, y, mask) or (x, y) if mask not needed.
+        """
+        return batch
+    
+    def transfer_batch_to_device(self, batch, device, dataloader_idx):
+        """
+        Usually you do not need to adjust this function as long as you have the batch in the right format in on_before_batch_transfer
+        Supported batch types:
+            torch.Tensor or anything that implements .to(…)
+            list
+            dict
+            tuple
+        If you have a very special data format, you can override this function and return a tuple for batch.
+
+        Here is an example:
+        ```python
+        x, y, msk, batch_info = batch
+        x = x.to(device)
+        y = y.to(device)
+        msk = msk.to(device)
+        return x, y, msk, batch_info
+        ```
+        """
+        return super().transfer_batch_to_device(batch, device, dataloader_idx=dataloader_idx)
+
+    
+
+class ProbePipelineBase(PipelineBase):
+    def __init__(self, 
+                 probe_config: EasyDict, 
+                 training_model: nn.Module,
+                 probe_layer: nn.Module,
+                 probe_loss_model: nn.Module,
+                 added_probe_target_key: Optional[str] = None, 
+                 added_vis_target_key: Optional[str] = None,
+                 ) -> None:
+        super().__init__(
+            train_config=probe_config, 
+            training_model=training_model, 
+            loss_p_model=probe_loss_model, 
+            loss_n_model=None)
+        # initialize the CustomPipeline
+        self.added_probe_target_key = added_probe_target_key
+        self.added_vs_target_key = added_vis_target_key
+        self.probe_loss_model = probe_loss_model
+        self.probe_layer = probe_layer
+        
+        # ---- initialize the dictionary for hooking positions ---- #
+        probe_dict = EasyDict({})
+        for added_key in self.added_probe_target_key:
+            probe_dict.setattr_with_string(added_key, None)
+        self.probe_storage_dict = EasyDict(copy.deepcopy(probe_dict))
+        
+        ## ---- initialize the dictionary for hooking attention ---- ##
+        vis_dict = EasyDict({})
+        for added_key in self.added_vs_target_key:
+            vis_dict.setattr_with_string(added_key, None)
+        self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
+
+        ## --------- autohook for probe model --------- ##
+        self.num_probe_hook = 0
+        for key, value in probe_dict.flatten().items():
+            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(self.training_model)
+            # print('key:', key)
+            probe_dict.setattr_with_string(
+                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
+            )
+            self.num_probe_hook += 1
+            
+        ## --------- autohook for vis model --------- ##
+        for key, value in vis_dict.flatten().items():
+            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(self.training_model)
+            # print('key:', key)
+            vis_dict.setattr_with_string(
+                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
+            )
+        
+        self.probe_dict = probe_dict
+        self.vis_dict = vis_dict # for later releasing the memory
+        
+        self.channel_loss_logger = []
+        
+        print("Number of probe hooks added:", self.num_probe_hook)
+
+        
+    def create_hook_fn(self, 
+                       model_to_hook_str: str,
+                       tensor_to_hook_str: str, 
+                       storage_dict: EasyDict):
+        """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
+
+        Args:
+            model_to_hook_str (str): The name of the model to hook. This should be the name of the model variable in pipeline.train_model.
+            tensor_to_hook_str (str): The name of the tensor to hook. This should be the name of the tensor in the model output/input. Check the intermediate results' keys in the forward method of the model.
+            storage_dict (EasyDict): _description_
+        """
+        def hook_fn(module, input, output):
+            ## --------- change the probe model input here --------- ##
+            _, intermediate_dict = output
+            # combine model_to_hook_str and tensor_to_hook_str with a dot
+            keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
+            storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
+        return hook_fn
+    
+    def configure_optimizers(self):
+        # Configure the optimizer.
+        if self.train_config.optimizer == "SGD":
+            optimizer = torch.optim.SGD(
+                self.probe_layer.parameters(),
+                lr=self.train_config.learning_rate,
+                momentum=self.train_config.momentum,
+                weight_decay=self.train_config.weight_decay,
+            )
+        elif self.train_config.optimizer == "Adam":
+            optimizer = torch.optim.Adam(
+                self.probe_layer.parameters(),
+                lr=self.train_config.learning_rate,
+            )
+        elif self.train_config.optimizer == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.probe_layer.parameters(),
+                lr=self.train_config.learning_rate,
+                weight_decay=self.train_config.weight_decay
+            )
+        else:
+            raise NotImplementedError(
+                f"Optimizer {self.train_config.optimizer} is not implemented!"
+            )
+            
+        # Configure the learning rate scheduler.
+        if self.train_config.lr_scheduler == "cosine":
+            cosine_scheduler_config = self.train_config.cosine_scheduler_config
+            scheduler = CosineAnnealingWarmup(
+                optimizer=optimizer,
+                warmup_steps=cosine_scheduler_config.warmup_steps,
+                learning_rate=self.train_config.learning_rate,
+                min_lr=cosine_scheduler_config.min_lr,
+                lr_decay_steps=cosine_scheduler_config.lr_decay_steps,
+            )
+        elif self.train_config.lr_scheduler == "step":
+            StepLR_config = self.train_config.StepLR_scheduler_config
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer,
+                step_size=StepLR_config.step_size,
+                gamma=StepLR_config.gamma,
+            )
+        else:
+            # use no scheduler
+            scheduler = None
+        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+    
+    def supply_hidden_state_tensor(self, pos: torch.Tensor):
+        """
+        """
+        # check if pos is a two-dimensional tensor
+        if pos.dim() != 2:
+            raise ValueError("pos should be a two-dimensional tensor")
+        row_sums = torch.sum(pos, dim = 1)
+        if not torch.all(row_sums == row_sums[0]):
+            raise ValueError("pos should be a two-dimensional tensor with the same sum of each row")
+        
+        # flatten the forward_return_dict
+        probe_storage_dict = self.probe_storage_dict.flatten()
+        
+        # get the values of the forward_return_dict_flattened
+        probe_storage_ls = list(probe_storage_dict.values()) # a list of tensors, each tensor is of shape (batch_size, seq_len, hidden_size)
+        
+        probe_storage_tensor = torch.stack(probe_storage_ls, dim = -1) # shape: (batch_size, seq_len, hidden_size, num_probe_hook)
+        
+        probe_storage_msk_tensor = self._mask_select(probe_storage_tensor, pos) # shape: (batch_size * msk_seq_len, hidden_size, num_probe_hook)
+
+        batch_size = probe_storage_tensor.shape[0]
+        probe_storage_msk_tensor = probe_storage_msk_tensor.reshape(batch_size, -1, *probe_storage_msk_tensor.shape[1:])
+        # shape: (batch_size, msk_seq_len, hidden_size, num_probe_hook)
+
+        # swap the dimensions
+        probe_storage_msk_tensor = probe_storage_msk_tensor.permute(0, 3, 1, 2) # shape: (batch_size, num_probe_hook, msk_seq_len, hidden_size)
+        
+        hidden_state_tensor = probe_storage_msk_tensor.reshape(probe_storage_msk_tensor.shape[0], -1, probe_storage_msk_tensor.shape[-1]) # shape: (batch_size, num_probe_hook * msk_seq_len, hidden_size)
+
+        return hidden_state_tensor # shape: (batch_size, num_probe_hook * msk_seq_len, hidden_size)
+
+    def _Probe_Step(self, batch, batch_idx, step_type: str):
+        ## --------------- forward pass --------------- ##
+        self.training_model.eval()
+        with torch.no_grad():
+            loss_p, loss_n, output = self._Step(
+                batch, 
+                batch_idx, 
+                "no_grad" if step_type == "train" else None
+                )
+            
+        x, y, mask, batch_info = self._unpack_batch(batch)
+        probe_loc_mask = batch_info[1]
+        probe_label = batch_info[0]
+        hidden_state_tensor = self.supply_hidden_state_tensor(probe_loc_mask)
+        
+        ## --------------- probing model --------------- ##
+        probing_output = self.probe_layer(hidden_state_tensor) # shape: (batch_size, channel_size, probe_output_size)
+        channel_size = probing_output.shape[1]
+        # if probe_label has dim 1:
+        # if probe_label.dim() == 1:
+        #     probe_loss = self.probe_loss_model(
+        #         probing_output.reshape(-1, *probing_output.shape[2:]), 
+        #         probe_label[:, None].expand(-1, channel_size).reshape(-1))
+        # else:
+        #     y = probe_label[:, None, ...].expand(-1, channel_size)
+        #     probe_loss = self.probe_loss_model(
+        #         probing_output.reshape(-1, *probing_output.shape[2:]), 
+        #         y.reshape(-1, *y.shape[2:]))
+        probing_output = probing_output.permute(0, 2, 1) # shape: (batch_size, probe_output_size, channel_size)
+        probe_label_ext = probe_label.unsqueeze(1)
+        probe_label_ext = probe_label_ext.expand(*probe_label_ext.shape[:-1], channel_size) # shape: (batch_size, 1)
+        # expand the last dimension of probe_label to channel_size
+        probe_loss = self.probe_loss_model(probing_output, probe_label_ext) # by default, the channel is not averaged, see for example https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+        ## -------------- log the loss -------------- ##
+
+        return probe_loss, probing_output # shape: (batch_size, probe_output_size, channel_size)
+    
+    
+    def training_step(self, batch, batch_idx):
+        ## ---------- on_my_epoch_end_hook ------------ ##
+        self._epoch_end_hook()    
+        
+        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "train")
+        
+        self.log("probe_train_loss", probe_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+
+        return probe_loss
+    
+    def validation_step(self, batch, batch_idx):
+        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "val")
+
+        self.log("probe_val_loss", probe_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        return probe_loss
+    
+    def test_step(self, batch, batch_idx):
+        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "test")
+
+        x, y, mask, batch_info = self._unpack_batch(batch)
+        channel_loss = torch.zeros(probing_output.shape[-1])
+        for channel_idx in range(probing_output.shape[-1]):
+            channel_loss[channel_idx] = self.probe_loss_model(probing_output[..., channel_idx], batch_info[0])
+        channel_loss = channel_loss.reshape(self.num_probe_hook, -1) # shape: (num_probe_hook, msk_seq_len)
+        
+        # log the channel_loss
+        self.channel_loss_logger.append((channel_loss, self.len_batch(batch)))
+        return probe_loss
+    
+    def process_and_reset_channel_loss(self):
+        """
+        Process the channel loss for visualization
+        """
+        if len(self.channel_loss_logger) == 0:
+            return None
+        else:
+            cum_channel_loss = torch.zeros(self.channel_loss_logger[0][0].shape)
+            cum_sample_size = 0
+            for channel_loss, batch_size in self.channel_loss_logger:
+                cum_channel_loss += channel_loss * batch_size
+                cum_sample_size += batch_size
+            channel_loss = cum_channel_loss / cum_sample_size
+
+            # make a pd table with rows as the keys of the probe_storage_dict
+            probe_storage_dict_keys = list(self.probe_storage_dict.flatten().keys())
+            channel_loss_df = pd.DataFrame(channel_loss.detach().cpu().numpy(), index=probe_storage_dict_keys)
+            
+            self.channel_loss_logger = []
+            
+            return channel_loss_df
