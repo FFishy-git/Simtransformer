@@ -4,7 +4,7 @@
 #SBATCH --qos=qos_zhuoran_yang 
 #SBATCH --gres=gpu:h100:1 
 #SBATCH --ntasks=1 
-#SBATCH --cpus-per-task=8 
+#SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00 
 #SBATCH --output=tk_comp_atomic/slurm_output/%j.out 
 #SBATCH --error=tk_comp_atomic/slurm_output/%j.err 
