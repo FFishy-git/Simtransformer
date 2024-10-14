@@ -9,6 +9,7 @@ import torch.nn as nn
 from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save
 import os, copy, operator
 import pandas as pd
+import math, itertools
 
 class DirectoryHandler:
     def __init__(self, 
@@ -138,6 +139,7 @@ class ConfigBase(EasyDict):
         self.model_config = EasyDict()
         self.train_config = EasyDict()
         self.data_config = EasyDict()
+        self.probe_config = EasyDict()
         
         # get current file's directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -146,6 +148,8 @@ class ConfigBase(EasyDict):
         self.model_config.update_from_file(os.path.join(current_dir, "configurations", "model_config_default.yaml"))
         self.train_config.update_from_file(os.path.join(current_dir, "configurations", "train_config_default.yaml"))
         self.data_config.update_from_file(os.path.join(current_dir, "configurations", "data_config_default.yaml"))
+        self.probe_config.update_from_file(os.path.join(current_dir, "configurations", "train_config_default.yaml"))
+        self.probe_config.update_from_file(os.path.join(current_dir, "configurations", "probe_config_default.yaml"))
         
         if config_dir is not None:
             # if config_dir + "model_config.yaml" exists, update model_config
@@ -157,6 +161,8 @@ class ConfigBase(EasyDict):
             # if config_dir + "data_config.yaml" exists, update data_config
             if os.path.exists(os.path.join(config_dir, "data_config.yaml")):
                 self.data_config.update_from_file(os.path.join(config_dir, "data_config.yaml"))
+            if os.path.exists(os.path.join(config_dir, "probe_config.yaml")):
+                self.probe_config.update_from_file(os.path.join(config_dir, "probe_config.yaml"))
         # sync
         self.prepare()
 
@@ -168,6 +174,7 @@ class ConfigBase(EasyDict):
         self.data_config.save_to_file(os.path.join(save_dir, "data_config.yaml"))
         self.model_config.save_to_file(os.path.join(save_dir, "model_config.yaml"))
         self.train_config.save_to_file(os.path.join(save_dir, "train_config.yaml"))
+        self.probe_config.save_to_file(os.path.join(save_dir, "probe_config.yaml"))
     
     @final
     def prepare(self):
@@ -391,28 +398,31 @@ class PipelineBase(lightning.LightningModule):
                 - mask: A mask tensor indicating valid data points.
                 - batch_info: Additional batch information if present, otherwise None.
         """
-        if len(batch) == 2:
-            x, y = batch
-            mask = torch.ones(x.shape[:2], dtype=torch.bool)
-            batch_info = None
-        elif len(batch) == 3:
-            x, y, mask = batch
-            batch_info = None
+        if "prompt" in batch.keys():
+            x = batch["prompt"]
         else:
-            # take x, y, mask as the first three elements in the batch
-            x, y, mask = batch[:3]
-            batch_info = batch[3:]
-        return x, y, mask, batch_info
+            raise ValueError("The batch should contain 'prompt' key.")
+        if "label" in batch.keys():
+            y = batch["label"]
+        else:
+            raise ValueError("The batch should contain 'label' key.")
+        mask = batch.get("mask", torch.ones(x.shape[:2], dtype=torch.bool))
+        probe_label = batch.get("probe_label", None)
+        probe_mask = batch.get("probe_mask", None)
+        batch_info = batch.get("batch_info", None)
+        return (x, y, mask), (probe_label, probe_mask), batch_info
     
     def len_batch(self, batch):
-        x = batch[0]
+        x = batch["prompt"]
         return len(x)
         
     ## ----------------- Cumstomized hooks ----------------- ##
     def _Step(self, batch, batch_idx, step_type: Optional[str] = None):
         ## --------- forward pass --------- ##
         
-        x, y, mask, batch_info = self._unpack_batch(batch)
+        # print("batch", batch)
+        train_batch, _, _ = self._unpack_batch(batch)
+        x, y, mask = train_batch
         # x (batch_size, seq_len, Optional)
         # y (batch_size, seq_len, Optional)
         # mask (batch_size, seq_len)
@@ -552,28 +562,24 @@ class DataModuleBase(lightning.LightningDataModule):
         if stage == "predict":
             self.data_predict = clever_load(self.dir_handler.data_path)
 
-    @final
     def train_dataloader(self):
         return DataLoader(self.data_train, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
                           shuffle=True)
     
-    @final
     def val_dataloader(self):
         return DataLoader(self.data_val, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
                           shuffle=False)
     
-    @final
     def test_dataloader(self):
         return DataLoader(self.data_test, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
                           shuffle=False)
     
-    @final
     def predict_dataloader(self):
         return DataLoader(
             self.data_predict, 
@@ -630,6 +636,8 @@ class DataModuleBase(lightning.LightningDataModule):
             (Optional) mask (batch_size, seq_len) indicating where the loss should be computed
         You should return a tuple (x, y, mask) or (x, y) if mask not needed.
         """
+        # raise a warning to remind the user to implement the function
+        raise NotImplementedError("You should implement the transform_batch function.")
         return batch
     
     def transfer_batch_to_device(self, batch, device, dataloader_idx):
@@ -651,29 +659,44 @@ class DataModuleBase(lightning.LightningDataModule):
         return x, y, msk, batch_info
         ```
         """
-        return super().transfer_batch_to_device(batch, device, dataloader_idx=dataloader_idx)
+        for key, val in batch.items():
+            if isinstance(val, torch.Tensor):
+                val = val.to(device)
+                batch[key] = val
+        return batch
+
 
     
 
 class ProbePipelineBase(PipelineBase):
     def __init__(self, 
                  probe_config: EasyDict, 
-                 training_model: nn.Module,
+                #  training_model: nn.Module,
                  probe_layer: nn.Module,
                  probe_loss_model: nn.Module,
+                 pipeline: PipelineBase, # suppose you have a pipeline that inherits from PipelineBase, then pass it here
                  added_probe_target_key: Optional[str] = None, 
                  added_vis_target_key: Optional[str] = None,
                  ) -> None:
-        super().__init__(
+        """Note that pipeline here is not attached to any trainer. So all the hooks are not activated, including the logger.
+
+        Args:
+            probe_config (EasyDict): _description_
+            probe_layer (nn.Module): _description_
+            probe_loss_model (nn.Module): _description_
+            pipeline (PipelineBase): _description_
+            thenpassithereadded_probe_target_key (Optional[str], optional): _description_. Defaults to None.
+            added_vis_target_key (Optional[str], optional): _description_. Defaults to None.
+        """
+        super(ProbePipelineBase, self).__init__(
             train_config=probe_config, 
-            training_model=training_model, 
-            loss_p_model=probe_loss_model, 
-            loss_n_model=None)
+            training_model=probe_layer, 
+            loss_p_model=probe_loss_model)
         # initialize the CustomPipeline
         self.added_probe_target_key = added_probe_target_key
         self.added_vs_target_key = added_vis_target_key
         self.probe_loss_model = probe_loss_model
-        self.probe_layer = probe_layer
+        self.pipeline = pipeline
         
         # ---- initialize the dictionary for hooking positions ---- #
         probe_dict = EasyDict({})
@@ -692,7 +715,7 @@ class ProbePipelineBase(PipelineBase):
         for key, value in probe_dict.flatten().items():
             # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
             model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.training_model)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
             # print('key:', key)
             probe_dict.setattr_with_string(
                 key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
@@ -702,7 +725,7 @@ class ProbePipelineBase(PipelineBase):
         ## --------- autohook for vis model --------- ##
         for key, value in vis_dict.flatten().items():
             model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.training_model)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
             # print('key:', key)
             vis_dict.setattr_with_string(
                 key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
@@ -715,6 +738,11 @@ class ProbePipelineBase(PipelineBase):
         
         print("Number of probe hooks added:", self.num_probe_hook)
 
+    @property
+    def probe_layer(self):
+        """Give a reference to the training model. The name probe_layer is easier to understand than training_model.
+        """
+        return self.training_model
         
     def create_hook_fn(self, 
                        model_to_hook_str: str,
@@ -734,53 +762,6 @@ class ProbePipelineBase(PipelineBase):
             keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
             storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
         return hook_fn
-    
-    def configure_optimizers(self):
-        # Configure the optimizer.
-        if self.train_config.optimizer == "SGD":
-            optimizer = torch.optim.SGD(
-                self.probe_layer.parameters(),
-                lr=self.train_config.learning_rate,
-                momentum=self.train_config.momentum,
-                weight_decay=self.train_config.weight_decay,
-            )
-        elif self.train_config.optimizer == "Adam":
-            optimizer = torch.optim.Adam(
-                self.probe_layer.parameters(),
-                lr=self.train_config.learning_rate,
-            )
-        elif self.train_config.optimizer == "AdamW":
-            optimizer = torch.optim.AdamW(
-                self.probe_layer.parameters(),
-                lr=self.train_config.learning_rate,
-                weight_decay=self.train_config.weight_decay
-            )
-        else:
-            raise NotImplementedError(
-                f"Optimizer {self.train_config.optimizer} is not implemented!"
-            )
-            
-        # Configure the learning rate scheduler.
-        if self.train_config.lr_scheduler == "cosine":
-            cosine_scheduler_config = self.train_config.cosine_scheduler_config
-            scheduler = CosineAnnealingWarmup(
-                optimizer=optimizer,
-                warmup_steps=cosine_scheduler_config.warmup_steps,
-                learning_rate=self.train_config.learning_rate,
-                min_lr=cosine_scheduler_config.min_lr,
-                lr_decay_steps=cosine_scheduler_config.lr_decay_steps,
-            )
-        elif self.train_config.lr_scheduler == "step":
-            StepLR_config = self.train_config.StepLR_scheduler_config
-            scheduler = torch.optim.lr_scheduler.StepLR(
-                optimizer,
-                step_size=StepLR_config.step_size,
-                gamma=StepLR_config.gamma,
-            )
-        else:
-            # use no scheduler
-            scheduler = None
-        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
     
     def supply_hidden_state_tensor(self, pos: torch.Tensor):
         """
@@ -809,85 +790,122 @@ class ProbePipelineBase(PipelineBase):
         # swap the dimensions
         probe_storage_msk_tensor = probe_storage_msk_tensor.permute(0, 3, 1, 2) # shape: (batch_size, num_probe_hook, msk_seq_len, hidden_size)
         
-        hidden_state_tensor = probe_storage_msk_tensor.reshape(probe_storage_msk_tensor.shape[0], -1, probe_storage_msk_tensor.shape[-1]) # shape: (batch_size, num_probe_hook * msk_seq_len, hidden_size)
+        # hidden_state_tensor = probe_storage_msk_tensor.reshape(probe_storage_msk_tensor.shape[0], -1, probe_storage_msk_tensor.shape[-1]) # shape: (batch_size, num_probe_hook * msk_seq_len, hidden_size)
 
-        return hidden_state_tensor # shape: (batch_size, num_probe_hook * msk_seq_len, hidden_size)
+        return probe_storage_msk_tensor # shape: (batch_size, num_probe_hook,  msk_seq_len, hidden_size)
 
-    def _Probe_Step(self, batch, batch_idx, step_type: str):
+    def _reshape_probe_state_and_label(self, 
+                                       probing_output, 
+                                       probe_label, 
+                                       in_channel_size_ls,
+                                        out_channel_size_ls,
+                                        total_channel_size_ls):
+        """
+        Reshape the probing_output and probe_label to the same shape for calculating the loss.
+        
+        """
+        
+        # move the last dimension to the dimension 1
+        probing_output = probing_output.permute(0, -1, *range(1, len(total_channel_size_ls) + 1)) # shape: (batch_size, probe_output_size, *in_channel_size_ls, *out_channel_size_ls)
+        
+        assert probe_label.shape[-len(out_channel_size_ls):] == out_channel_size_ls, f"The last dimensions of probe_label should be the same as out_channel_size_ls{out_channel_size_ls}, but we find {probe_label.shape[-len(out_channel_size_ls):]}"
+        
+        label_intrinsic_size_ls = probe_label.shape[:-len(out_channel_size_ls)]
+        
+        # add len(in_channel_size_ls) new dimensions previous to the last len(out_channel_size_ls) dimensions
+        for i in range(len(in_channel_size_ls)):
+            probe_label = probe_label.unsqueeze(-len(out_channel_size_ls)-1)
+            # expand the added dimension to the size of in_channel_size_ls[i]
+        # shape: (batch_size, ..., 1, ..., 1, *out_channel_size_ls)
+        probe_label = probe_label.expand(*label_intrinsic_size_ls, *in_channel_size_ls, *out_channel_size_ls) # shape: (label_intrinsic_size_ls, *in_channel_size_ls, *out_channel_size_ls)
+        return probing_output, probe_label
+    
+    def _Step(self, batch, batch_idx, step_type: str):
         ## --------------- forward pass --------------- ##
-        self.training_model.eval()
+        self.pipeline.training_model.eval()
         with torch.no_grad():
-            loss_p, loss_n, output = self._Step(
+            loss_p, loss_n, output = self.pipeline._Step(
                 batch, 
                 batch_idx, 
-                "no_grad" if step_type == "train" else None
+                step_type=None, # do not log the loss because the pipeline is not attached to a trainer
                 )
             
-        x, y, mask, batch_info = self._unpack_batch(batch)
-        probe_loc_mask = batch_info[1]
-        probe_label = batch_info[0]
-        hidden_state_tensor = self.supply_hidden_state_tensor(probe_loc_mask)
+        _, probe_batch, _ = self._unpack_batch(batch)
+        probe_loc_mask = probe_batch[1]
+        probe_label = probe_batch[0]
+        
+        hidden_state_tensor = self.supply_hidden_state_tensor(probe_loc_mask) # shape: (batch_size, num_probe_hook, msk_seq_len, hidden_size)
         
         ## --------------- probing model --------------- ##
-        probing_output = self.probe_layer(hidden_state_tensor) # shape: (batch_size, channel_size, probe_output_size)
-        channel_size = probing_output.shape[1]
-        # if probe_label has dim 1:
-        # if probe_label.dim() == 1:
-        #     probe_loss = self.probe_loss_model(
-        #         probing_output.reshape(-1, *probing_output.shape[2:]), 
-        #         probe_label[:, None].expand(-1, channel_size).reshape(-1))
-        # else:
-        #     y = probe_label[:, None, ...].expand(-1, channel_size)
-        #     probe_loss = self.probe_loss_model(
-        #         probing_output.reshape(-1, *probing_output.shape[2:]), 
-        #         y.reshape(-1, *y.shape[2:]))
-        probing_output = probing_output.permute(0, 2, 1) # shape: (batch_size, probe_output_size, channel_size)
-        probe_label_ext = probe_label.unsqueeze(1)
-        probe_label_ext = probe_label_ext.expand(*probe_label_ext.shape[:-1], channel_size) # shape: (batch_size, 1)
-        # expand the last dimension of probe_label to channel_size
-        probe_loss = self.probe_loss_model(probing_output, probe_label_ext) # by default, the channel is not averaged, see for example https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+        probing_output = self.probe_layer(hidden_state_tensor) # shape: (batch_size, num_probe_hook, msk_seq_len, *out_channel_size_ls, probe_output_size)
+        
+        in_channel_size_ls = hidden_state_tensor.shape[1:-1]
+        total_channel_size_ls = probing_output.shape[1:-1]
+        out_channel_size_ls = total_channel_size_ls[len(in_channel_size_ls):]
+        
+        probing_output_ext, probe_label_ext = self._reshape_probe_state_and_label(probing_output, 
+                                            probe_label, 
+                                            in_channel_size_ls, out_channel_size_ls, total_channel_size_ls)
+        
+        probe_loss = self.probe_loss_model(probing_output_ext, probe_label_ext)
+
         ## -------------- log the loss -------------- ##
 
-        return probe_loss, probing_output # shape: (batch_size, probe_output_size, channel_size)
+        return probe_loss, probing_output_ext, probe_label_ext
     
     
     def training_step(self, batch, batch_idx):
         ## ---------- on_my_epoch_end_hook ------------ ##
         self._epoch_end_hook()    
         
-        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "train")
+        probe_loss, _, _ = self._Step(batch, batch_idx, "train")
         
-        self.log("probe_train_loss", probe_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        total_channel_num = 1
+        # check if probe_loss is a scalar
+        if probe_loss.dim() != 0:
+            # average over the first dimension
+            probe_loss = probe_loss.mean(dim=0)
+            # take a sum over the rest of the dimensions
+            total_channel_num = probe_loss.numel()
+            probe_loss = probe_loss.sum()
+        
+        self.log("probe_train_loss", probe_loss / total_channel_num, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
 
         return probe_loss
     
     def validation_step(self, batch, batch_idx):
-        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "val")
+        probe_loss, _, _ = self._Step(batch, batch_idx, "val")
 
-        self.log("probe_val_loss", probe_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        # check if probe_loss is a scalar
+        total_channel_num = 1
+        if probe_loss.dim() != 0:
+            # average over the first dimension
+            probe_loss = probe_loss.mean(dim=0)
+            # take a sum over the rest of the dimensions
+            total_channel_num = probe_loss.numel()
+            probe_loss = probe_loss.sum()
+            probe_loss = probe_loss.sum()
+            
+        self.log("probe_val_loss", probe_loss/total_channel_num, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
         return probe_loss
     
     def test_step(self, batch, batch_idx):
-        probe_loss, probing_output = self._Probe_Step(batch, batch_idx, "test")
+        probe_loss, _, _ = self._Step(batch, batch_idx, "test")
 
-        x, y, mask, batch_info = self._unpack_batch(batch)
-        channel_loss = torch.zeros(probing_output.shape[-1])
-        for channel_idx in range(probing_output.shape[-1]):
-            channel_loss[channel_idx] = self.probe_loss_model(probing_output[..., channel_idx], batch_info[0])
-        channel_loss = channel_loss.reshape(self.num_probe_hook, -1) # shape: (num_probe_hook, msk_seq_len)
-        
-        # log the channel_loss
-        self.channel_loss_logger.append((channel_loss, self.len_batch(batch)))
-        return probe_loss
+        if probe_loss.dim() != 0:
+            probe_loss = probe_loss.mean(dim=0)
+            
+        self.channel_loss_logger.append((probe_loss, self.len_batch(batch)))
+        return probe_loss.sum()
     
-    def process_and_reset_channel_loss(self):
+    def process_and_reset_channel_loss(self, pos_label: Optional[list] = None):
         """
         Process the channel loss for visualization
         """
         if len(self.channel_loss_logger) == 0:
             return None
         else:
-            cum_channel_loss = torch.zeros(self.channel_loss_logger[0][0].shape)
+            cum_channel_loss = torch.zeros(self.channel_loss_logger[0][0].shape, device=self.channel_loss_logger[0][0].device)
             cum_sample_size = 0
             for channel_loss, batch_size in self.channel_loss_logger:
                 cum_channel_loss += channel_loss * batch_size
@@ -895,8 +913,21 @@ class ProbePipelineBase(PipelineBase):
             channel_loss = cum_channel_loss / cum_sample_size
 
             # make a pd table with rows as the keys of the probe_storage_dict
+            
+            in_channel_size_ls = list(channel_loss.shape[0:2])
+            out_channel_size_ls = list(channel_loss.shape[2:])
+            
             probe_storage_dict_keys = list(self.probe_storage_dict.flatten().keys())
-            channel_loss_df = pd.DataFrame(channel_loss.detach().cpu().numpy(), index=probe_storage_dict_keys)
+            
+            channel_loss_df_ls = []
+            ranges = [range(x) for x in out_channel_size_ls]
+            for index, combination in enumerate(itertools.product(*ranges)):
+                print(index, combination)
+                
+                index_tuple = (slice(None), slice(None), *combination)
+                channel_loss_df = pd.DataFrame(channel_loss[index_tuple].detach().cpu().numpy(), index=probe_storage_dict_keys, columns=pos_label)
+                
+                channel_loss_df_ls.append(channel_loss_df)
             
             self.channel_loss_logger = []
             

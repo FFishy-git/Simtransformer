@@ -26,9 +26,8 @@ The methods related to batch are majorly in class `DataModuleBase`:
 
 * **train_val_test_split(self, data)**: return (`data_train`, `data_val`, `data_test`)
 
-* **transform_batch(self, batch, dataloader_idx)**: to pad the sequences in the batch and make it ready to be fed into the forward process. The return is a tuple (`x_tensor`, `y_tensor`, `msk_tensor`, `batch_info`)
-
-* **transfer_batch_to_device(self, batch, device, dataloader_idx)**: `batch` is the batch after calling **transform_batch()**. You are expected to specify how to move the batch on the device. If you do not have `batch_info`, you can use the default method without overriding. The return is a tuple (`x_tensor`, `y_tensor`, `msk_tensor`, `batch_info`)
+* **transform_batch(self, batch, dataloader_idx)**: to pad the sequences in the batch and make it ready to be fed into the forward process. The return is a dictionary that should contains the keys "prompt", "label", "mask", "probe_label", "probe_mask", "batch_info". 
+For only doing the training, "probe_label", "probe_mask", "batch_info" can be 
 
 * **prepare_data()**: used for downloading dataset, or you can use it for regenerating the dataset. 
 
@@ -51,30 +50,59 @@ class DataModule(DataModuleBase):
         y_tensor = torch.zeros(len(batch), max_seq_len - 1, dtype=torch.long)
         batch_info = []
         msk_tensor = torch.zeros(len(batch), max_seq_len - 1, dtype=torch.bool)
+        probe_msk_tensor = torch.zeros(len(batch), max_seq_len - 1, dtype=torch.bool)
+        probe_label = torch.zeros(len(batch), 1, dtype=torch.long).fill_(self.vocab["<pad>"])
         
         for i, sample in enumerate(batch):
             sentence, reasoning_path, pos = sample['sentence'], sample['reasoning_path'], sample['pos']
             sentence_idx = [self.vocab[word] for word in sentence]
             sentence_idx_padded = sentence_idx + [self.vocab["<pad>"]] * (max_seq_len - len(sentence_idx))
             
-            x_tensor[i, :] = torch.tensor(sentence_idx_padded[:-1])
-            y_tensor[i, :] = torch.tensor(sentence_idx_padded[1:])
+            x_tensor[i, :] = copy.deepcopy(torch.tensor(sentence_idx_padded[:-1]))
+            y_tensor[i, :] = copy.deepcopy(torch.tensor(sentence_idx_padded[1:]))
             
-            # for positions of '<pre_rel>' and '<pre_dst>', set the mask to True
-            msk_tensor[i, torch.where(x_tensor[i, :] == self.vocab['<pre_rel>'])] = True
+            # find the position of '<pre_rel>' and set the token next to it to be '<Q>'
+            pre_rel_pos = sentence.index('<pre_rel>')
+            rel_pos = pre_rel_pos + 1
+            pre_dst_pos = sentence.index('<pre_dst>')
+            dst_pos = pre_dst_pos + 1
+            
             msk_tensor[i, torch.where(x_tensor[i, :] == self.vocab['<pre_dst>'])] = True
+            
+            # the following two is for probing
+            probe_msk_tensor[i, [pre_rel_pos, rel_pos, pre_dst_pos]] = True
+
+            probe_label[i, 0] = sentence_idx_padded[dst_pos]
             
             batch_info.append(sample)
             
-        return x_tensor, y_tensor, msk_tensor, batch_info
-    
-    def transfer_batch_to_device(self, batch, device, dataloader_idx):
-        x, y, msk, batch_info = batch
-        x = x.to(device)
-        y = y.to(device)
-        msk = msk.to(device)
-        return x, y, msk, batch_info
+        return EasyDict({
+            "prompt": x_tensor,
+            "label": y_tensor,
+            "mask": msk_tensor,
+            "probe_label": probe_label,
+            "probe_mask": probe_msk_tensor,
+            "batch_info": batch_info
+        })
 ```
 
 ### DataModuleBase Configuration
+
 The DataModuleBase is initialized by data_config
+
+
+## Probing Model
+
+### Channel
+
+We treat each hidden state at each position as an `in_channel`, while each probing task as an `out_channel`. The total number of linear probes we are training is thus the product of the total number of `in_channel` and `out_channel`.
+
+The input channel always takes the shape of (probe_hook_num, probe_pos_len), where `probe_hook_num` is the total number of probing hook added to the model, and `probe_pos_len` is the total number of locations in the prompt sequence we want to probe. The actual locations to probe is supplied by the 'probe_mask' items in the `transform_batch()` method
+
+```
+Notice: probe_label must be of shape (batch_size, *out_channel_size_ls), even if there is only one out_channel.
+```
+
+### Probing loss
+
+If the loss model is `nn.Crossentropy`, the reduction should be set to `'none'` because we are interested in obtaining individual loss for each input/output channel

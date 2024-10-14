@@ -101,8 +101,8 @@ class AbsolutePositionalEmbeddings(nnModule):
             torch.Tensor: The output tensor after applying the positional embeddings.
         """
         if input_pos is None:
-            input_pos = torch.arange(x.size(-1), device=x.device).expand(x.size(0), -1)
-        position_embeddings = self.position_embeddings(input_pos)
+            input_pos = torch.arange(x.size(1), device=x.device).expand(x.size(0), -1)
+        position_embeddings = self.abspos_embeddings(input_pos)
         if self.use_pos_layer_norm:
             return self.layer_norm(x + position_embeddings)
         else:
@@ -582,15 +582,15 @@ class MultiHeadAttentionDeBERTa(nnModule):
         # return intermediate values
         intermediate = EasyDict({
             'input': x,
-            'q': q,
-            'k': k,
-            'v': v,
-            'relpos_k': relpos_k,
-            'relpos_q': relpos_q,
-            'logits_query_pos': logits_query_pos,
-            'logits_pos_key': logits_pos_key,
-            'logits_query_key': logits_query_key,
-            'attn_prob': attn_prob, 
+            'q': q if 'q' in locals() else None,
+            'k': k if 'k' in locals() else None,
+            'v': v if 'v' in locals() else None,
+            'relpos_k': relpos_k if 'relpos_k' in locals() else None,
+            'relpos_q': relpos_q if 'relpos_q' in locals() else None,
+            'logits_query_pos': logits_query_pos if 'logits_query_pos' in locals() else None,
+            'logits_pos_key': logits_pos_key if 'logits_pos_key' in locals() else None,
+            'logits_query_key': logits_query_key if 'logits_query_key' in locals() else None,
+            'attn_prob': attn_prob if 'attn_prob' in locals() else None,
             'output': o
         })
         return o, intermediate
@@ -743,7 +743,7 @@ class TransformerBlock(nnModule):
 
     def forward(
         self, 
-        input: torch.Tensor,
+        in_x: torch.Tensor,
         pos_model: Optional[nn.Module] = None,
         mask: Optional[Union[torch.Tensor, None]] = None,
         head_mask: Optional[torch.Tensor] = None,
@@ -753,7 +753,7 @@ class TransformerBlock(nnModule):
         Apply a Transformer block to the input tensor.
 
         Args:
-            input (torch.Tensor): A 3D tensor of shape [batch_size, seq_len, input_size].
+            in_x (torch.Tensor): A 3D tensor of shape [batch_size, seq_len, input_size].
             mask (Optional[Union[torch.Tensor, None]]): Optional mask tensor 
                 of shape [batch_size, 1, seq_len, seq_len].
             head_mask (Optional[torch.Tensor]): Optional head mask tensor.
@@ -763,10 +763,10 @@ class TransformerBlock(nnModule):
         """
 
         ##-----------------Attention-----------------##
-        residual_attn = input
+        residual_attn = in_x
 
         # layer-normalization
-        x = self.ln_1(input)
+        x = self.ln_1(in_x)
         # Apply multi-head self-attention.
         attn_outputs = self.attn(
             x, 
@@ -797,7 +797,7 @@ class TransformerBlock(nnModule):
         # if model is in the evaluation mode, store the mlp output
         
         return output, EasyDict({
-            'input': input,
+            'input': in_x,
             'attn_res_output': attn_res_output,
             'output': output,
             })
@@ -853,7 +853,7 @@ class TransformerEncoder(nnModule):
         if pos_emb_type == "NoPE": # no positional encoding
             self.pos_model = None
         elif pos_emb_type == "AbPE": # absolute positional embedding
-            self.pose_model = AbsolutePositionalEmbeddings(
+            self.pos_model = AbsolutePositionalEmbeddings(
                 dim=hidden_size,
                 max_position_embeddings=max_seq_len,
                 use_pos_layer_norm=model_config.use_pos_layer_norm,
@@ -953,20 +953,60 @@ class TransformerEncoder(nnModule):
 
     
 class LinearWithChannel(nnModule):
-    def __init__(self, input_size, output_size, channel_size):
+    def __init__(self, 
+                 input_size, 
+                 output_size, 
+                 in_channel_size_ls: Union[list, tuple, int], 
+                 out_channel_size_ls: Union[list, tuple, int],
+                 ):
         super(LinearWithChannel, self).__init__()
+        if isinstance(in_channel_size_ls, int):
+            in_channel_size_ls = [in_channel_size_ls]
+        if isinstance(out_channel_size_ls, int):
+            out_channel_size_ls = [out_channel_size_ls]
         
         #initialize weights
-        self.weight = torch.nn.Parameter(torch.randn(channel_size, output_size, input_size))
-        self.bias = torch.nn.Parameter(torch.randn(channel_size, output_size))
+        self.weight = torch.nn.Parameter(torch.randn(*in_channel_size_ls, *out_channel_size_ls, output_size, input_size))
+        # shape of weight: (*in_channel_size_ls, *out_channel_size_ls, output_size, input_size)
+        
+        self.bias = torch.nn.Parameter(torch.randn(*in_channel_size_ls, *out_channel_size_ls, output_size))
+        # shape of bias: (*in_channel_size_ls, *out_channel_size_ls, output_size)
+        
+        self.in_channel_size_ls = in_channel_size_ls
+        self.out_channel_size_ls = out_channel_size_ls
     
     def forward(self, x: torch.Tensor):
         """
         Args:
-        - x: tensor of shape (batch_size, channel_size, input_size)
+        - x: tensor of shape (batch_size, *in_channel_size_ls, input_size)
 
         Returns:
-        - output: tensor of shape (batch_size, channel_size, output_size)
+        - output: tensor of shape (batch_size, *in_channel_size_ls, *out_channel_size_ls, output_size)
         """
-        return torch.einsum('bci,coi->bco', x, self.weight) + self.bias
-        # return torch.bmm(x, self.weight.transpose(-2, -1)) + self.bias
+        
+        # expand x to shape (batch_size, *in_channel_size_ls, *out_channel_size_ls, input_size)
+        
+        # Step 1: add len(out_channel_size_ls) dimensions to x
+        for _ in range(len(self.out_channel_size_ls)):
+            x = x.unsqueeze(-2)
+        # x.shape: (batch_size, *in_channel_size_ls, 1, ...1, input_size)
+        # append a dimension to the end of x
+        x = x.unsqueeze(-1)
+        # x.shape: (batch_size, *in_channel_size_ls, 1, ...1, input_size, 1)
+            
+        # Step 2: perform matrix multiplication with weight
+        output = torch.matmul(self.weight, x)
+        # output.shape: (batch_size, *in_channel_size_ls, *out_channel_size_ls, output_size, 1)
+        
+        # Step 3: remove the last dimension
+        output = output.squeeze(-1)
+        # output.shape: (batch_size, *in_channel_size_ls, *out_channel_size_ls, output_size)
+        
+        # Step 4: add bias
+        output = output + self.bias
+        
+        return output
+        
+        
+
+        

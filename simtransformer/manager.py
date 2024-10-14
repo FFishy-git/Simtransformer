@@ -66,7 +66,6 @@ class TrainingManagerBase():
         # set up configuration
         config_dir = self.dir_handler.load_config_dir
         self.config = self.abstract_config(config_dir)
-        self.data_config, self.model_config, self.train_config = self.config.data_config, self.config.model_config, self.config.train_config
 
         # seed_everything
         if self.train_config.seed is not None:
@@ -75,11 +74,11 @@ class TrainingManagerBase():
         # sync vocab size and obtain vocab
         if os.path.exists(self.dir_handler.vocab_path):
             self.vocab = Vocab(clever_load(self.dir_handler.vocab_path))
-            self.model_config.vocab_size = len(self.vocab)
+            # self.model_config.vocab_size = len(self.vocab)
             self.data_config.vocab_size = len(self.vocab)
         else:
             self.vocab = None
-            self.model_config.vocab_size = None
+            # self.model_config.vocab_size = None
             self.data_config.vocab_size = None
         
         # setup modules
@@ -109,6 +108,7 @@ class TrainingManagerBase():
                       abstract_config: ConfigBase = ConfigBase,
                       abstract_pipeline: PipelineBase = PipelineBase,
                       abstract_datamodule: DataModuleBase = DataModuleBase,
+                      abstract_probepipeline: ProbePipelineBase = ProbePipelineBase,
                       ):
         dir_handler = DirectoryHandler.load_from_file(path_to_dirhandler)
         return cls(dir_handler,
@@ -116,7 +116,25 @@ class TrainingManagerBase():
                    keep_output_dir,
                    abstract_config,
                    abstract_pipeline,
-                   abstract_datamodule,)
+                   abstract_datamodule,
+                   abstract_probepipeline,
+                    )
+    
+    @property
+    def data_config(self):
+        return self.config.data_config
+    
+    @property
+    def model_config(self):
+        return self.config.model_config
+    
+    @property
+    def train_config(self):
+        return self.config.train_config
+    
+    @property
+    def probe_config(self):
+        return self.config.probe_config
     
     @final
     def setup_probe_pipeline(self):
@@ -182,7 +200,7 @@ class TrainingManagerBase():
         )
         lr_monitor = LearningRateMonitor(logging_interval='step')
         trainer = Trainer(
-            max_epochs=self.train_config.max_epochs,
+            max_epochs=self.probe_config.max_epochs,
             logger=self.wandb_logger,
             callbacks=[lr_monitor, checkpoint_callback],
             default_root_dir=self.dir_handler.output_dir,
@@ -190,15 +208,15 @@ class TrainingManagerBase():
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
 
     @final
-    def probe_test(self):
+    def probe_test(self, pos_label):
         trainer = Trainer(
-            max_epochs=self.train_config.max_epochs,
+            max_epochs=self.probe_config.max_epochs,
             logger=self.wandb_logger,
             # callbacks=[lr_monitor, checkpoint_callback],
             default_root_dir=self.dir_handler.output_dir,
         )
         trainer.test(self.probe_pipeline, datamodule=self.datamodule)
-        return self.probe_pipeline.process_and_reset_channel_loss()
+        return self.probe_pipeline.process_and_reset_channel_loss(pos_label)
     ## ----------------- Cumstomized functions ----------------- ##
     def get_training_name(self):
         """
