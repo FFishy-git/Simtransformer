@@ -129,6 +129,54 @@ class TrainingManagerBase():
                      **kwargs,
                     )
     
+    @classmethod
+    def load_training_manager(
+        cls,
+        task_dir: str,
+        last_run_name: str,
+        ckpt_file_name: Optional[str],
+        prefix_for_training_name: Optional[str] = None,
+        abstract_config: ConfigBase = ConfigBase,
+        abstract_pipeline: PipelineBase = PipelineBase,
+        abstract_datamodule: DataModuleBase = DataModuleBase,
+        **kwargs
+    ):
+
+        last_run_dir = os.path.join(task_dir, 'run', last_run_name)
+        if ckpt_file_name is None:
+            # search for the latest checkpoint file
+            ckpt_files = [f for f in os.listdir(last_run_dir) if f.endswith('.ckpt')]
+            ckpt_files.sort()
+            ckpt_file_name = ckpt_files[-1]
+        load_ckpt_abs_path = os.path.join(last_run_dir, ckpt_file_name)
+        if prefix_for_training_name is None:
+            prefix_for_training_name = ''
+        training_name = prefix_for_training_name + last_run_name
+
+        dir_handler = DirectoryHandler(
+            load_data_abs_dir=os.path.join(task_dir, 'data'),
+            data_file_name=None,
+            vocab_file_name=None,
+            load_config_abs_dir=os.path.join(last_run_dir, 'configurations'),
+            load_ckpt_abs_path=load_ckpt_abs_path,
+            output_abs_dir=None,
+            create_run_under_abs_dir=task_dir,
+            training_name=training_name,
+        )
+
+        path_to_dirhandler = os.path.join(last_run_dir, 'configurations', 'dirhandler.yaml')
+        dir_handler_old = DirectoryHandler.load_from_file(path_to_dirhandler)
+        dir_handler.data_file_name = dir_handler_old.data_file_name
+        dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
+
+        return cls(
+            dir_handler=dir_handler,
+            abstract_config=abstract_config,
+            abstract_pipeline=abstract_pipeline,
+            abstract_datamodule=abstract_datamodule,
+            **kwargs
+        )
+    
     @property
     def data_config(self):
         return self.config.data_config
