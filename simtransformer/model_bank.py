@@ -1,4 +1,4 @@
-from .model_base import TransformerEncoder, ReadIn, ReadOut, nnModule
+from .model_base import TransformerEncoder, ReadIn, ReadOut, nnModule, TransformerEncoderOnlyAttn
 from .utils import EasyDict
 from torch import Tensor
 from typing import Optional
