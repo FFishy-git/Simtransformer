@@ -133,6 +133,9 @@ class Vocab:
     
     def save_to_file(self, path: str):
         clever_save(self.vocab, path)
+        
+    def get_word_ls(self):
+        return list(self.vocab.keys())
 
 class ConfigBase(EasyDict):
     """
