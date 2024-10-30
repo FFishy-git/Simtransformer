@@ -7,6 +7,10 @@ import yaml, json, os, csv
 from lightning.pytorch.utilities.parsing import AttributeDict
 import random
 from typing import Union
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
     combined = list(zip(data, indices))
@@ -267,3 +271,17 @@ def token_accuracy(y_hat, y):
     accuracy = correct_predictions / y.size(0)
     
     return accuracy
+
+def check_cosine_similarity(embedding, verbose=False, emb_label=None):
+    # check the cosine similarity between the embeddings
+    embedding_np = embedding.cpu().detach().numpy()
+    cos_sim = cosine_similarity(embedding_np, embedding_np)
+    if verbose:
+        plt.figure(figsize=(16, 14))
+        sns.heatmap(cos_sim, annot=False)
+        if emb_label is not None:
+            fontsize = max(6, 12 - len(emb_label) // 10)
+            plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
+            plt.yticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=0, fontsize=fontsize)
+        plt.show()
+    return cos_sim

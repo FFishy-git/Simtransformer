@@ -51,6 +51,10 @@ class DirectoryHandler:
         clever_save(self.__dict__, path)
     
     @property
+    def data_dir(self):
+        return self.load_data_abs_dir
+    
+    @property
     def data_path(self):
         return os.path.join(self.load_data_abs_dir, self.data_file_name)
     
