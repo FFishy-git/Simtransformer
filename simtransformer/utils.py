@@ -3,7 +3,7 @@ import torch
 import math
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
-import yaml, json, os
+import yaml, json, os, csv
 from lightning.pytorch.utilities.parsing import AttributeDict
 import random
 from typing import Union
@@ -193,6 +193,12 @@ def clever_load(file_path):
             return json.load(f)
     elif file_path.endswith(".pth"):
         return torch.load(file_path)
+    elif file_path.endswith(".csv"):
+        with open(file_path, "r", newline="") as f:
+            reader = csv.reader(f)
+            obj =[row for row in reader]
+            return obj
+                
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")
     
@@ -215,8 +221,13 @@ def clever_save(obj, file_path):
             json.dump(obj, f)
     elif file_path.endswith(".pth"):
         torch.save(obj, file_path)
+    elif file_path.endswith(".csv"):
+        with open(file_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(obj)
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")
+    
     
     
 def estimate_mfu(self, fwdbwd_per_iter, dt, num_layers, num_heads, dim_per_head, seq_len):
