@@ -90,17 +90,26 @@ class TrainingManagerBase():
             # self.model_config.vocab_size = None
             self.data_config.vocab_size = None
         
-        # setup modules
-        if self.dir_handler.load_ckpt_path is not None:
-            self.setup_modules_restore(self.dir_handler.load_ckpt_path)
-        else: 
-            self.setup_modules_init()
-            
         # output directory, and generate a training name
         self.training_name = self.get_training_name()
         # set up output directory
         self.dir_handler.set_output_dir(self.training_name)
 
+        # save datamodule's validation dataset to the output directory
+        self.data_config.save_val_indices = self.train_config.save_val_indices
+        file_extension = os.path.splitext(self.dir_handler.data_file_name)[1]
+        val_indices_filename = f"val_indices{file_extension}"
+        val_indices_path = os.path.join(self.dir_handler.output_dir, val_indices_filename)
+        self.data_config.save_val_indices_path = val_indices_path
+
+        self.data_config.num_workers = self.train_config.num_workers
+
+        # setup modules
+        if self.dir_handler.load_ckpt_path is not None:
+            self.setup_modules_restore(self.dir_handler.load_ckpt_path)
+        else: 
+            self.setup_modules_init()
+        
         # wandb initialization
         self.wandb_logger = self.wandb_initialization(self.train_config.use_wandb)
         # self.train_config.wandb_id = self.wandb_logger.version() if use_wandb else None
@@ -112,7 +121,6 @@ class TrainingManagerBase():
     @classmethod
     def restore_state(cls, 
                       path_to_dirhandler: str,
-                      keep_output_dir: bool = False, 
                       abstract_config: ConfigBase = ConfigBase,
                       abstract_pipeline: PipelineBase = PipelineBase,
                       abstract_datamodule: DataModuleBase = DataModuleBase,
@@ -121,7 +129,6 @@ class TrainingManagerBase():
                       ):
         dir_handler = DirectoryHandler.load_from_file(path_to_dirhandler)
         return cls(dir_handler,
-                   keep_output_dir,
                    abstract_config,
                    abstract_pipeline,
                    abstract_datamodule,
