@@ -272,16 +272,43 @@ def token_accuracy(y_hat, y):
     
     return accuracy
 
-def check_cosine_similarity(embedding, verbose=False, emb_label=None):
+def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb_label=None, target_label=None, max_size=16, title=None):
     # check the cosine similarity between the embeddings
     embedding_np = embedding.cpu().detach().numpy()
-    cos_sim = cosine_similarity(embedding_np, embedding_np)
+    if target_embedding is None:
+        cos_sim = cosine_similarity(embedding_np, embedding_np)
+    else:
+        target_embedding_np = target_embedding.cpu().detach().numpy()
+        cos_sim = cosine_similarity(embedding_np, target_embedding_np)
     if verbose:
-        plt.figure(figsize=(16, 14))
-        sns.heatmap(cos_sim, annot=False)
-        if emb_label is not None:
-            fontsize = max(6, 12 - len(emb_label) // 10)
-            plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
-            plt.yticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=0, fontsize=fontsize)
-        plt.show()
+        if target_embedding is None:
+            plt.figure(figsize=(max_size + 2, max_size))
+            sns.heatmap(cos_sim, annot=False)
+            if emb_label is not None:
+                fontsize = max(6, 12 - len(emb_label) // 10)
+                plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
+                plt.yticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=0, fontsize=fontsize)
+            if title is not None:
+                plt.title(title)
+            plt.show()
+        else:
+            # select a size according to the relative length of embedding and target_embedding
+            size = (len(embedding_np), len(target_embedding_np))
+            # control the maximum size of the heatmap to be 16 while keeping the aspect ratio
+            if size[0] > max_size:
+                size = (max_size, int(max_size * size[1] / size[0]))
+            elif size[1] > max_size:
+                size = (int(max_size * size[0] / size[1]), max_size)
+            size = (size[1] + 2, size[0])
+            plt.figure(figsize=size)
+            sns.heatmap(cos_sim, annot=False)
+            if emb_label is not None:
+                fontsize = max(6, 12 - len(emb_label) // 10)
+                plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
+            if target_label is not None:
+                fontsize = max(6, 12 - len(target_label) // 10)
+                plt.yticks(ticks=np.arange(len(target_label)), labels=target_label, rotation=0, fontsize=fontsize)
+            if title is not None:
+                plt.title(title)
+            plt.show()
     return cos_sim
