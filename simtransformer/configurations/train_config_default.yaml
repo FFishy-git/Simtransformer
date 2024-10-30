@@ -18,3 +18,4 @@ weight_decay: 0.01
 seed: 42
 num_workers: 4
 use_loss_n: true
+loss_n_scale: 0.0
