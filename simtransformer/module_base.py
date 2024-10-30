@@ -606,6 +606,8 @@ class DataModuleBase(lightning.LightningDataModule):
 
     def train_dataloader(self):
         num_workers = self.data_config.num_workers * torch.cuda.device_count()
+        if os.name == 'nt':
+            num_workers = 0
         return DataLoader(self.data_train, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
@@ -614,6 +616,8 @@ class DataModuleBase(lightning.LightningDataModule):
     
     def val_dataloader(self):
         num_workers = max(4, self.data_config.num_workers) * torch.cuda.device_count()
+        if os.name == 'nt':
+            num_workers = 0
         return DataLoader(self.data_val, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
@@ -622,15 +626,18 @@ class DataModuleBase(lightning.LightningDataModule):
     
     def test_dataloader(self):
         num_workers = max(2, self.data_config.num_workers) * torch.cuda.device_count()
+        if os.name == 'nt':
+            num_workers = 0
         return DataLoader(self.data_test, 
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
                           shuffle=False,
-                          num_workers=num_workers, 
-                          persistent_workers=True)
+                          num_workers=num_workers)
     
     def predict_dataloader(self):
         num_workers = self.data_config.num_workers * torch.cuda.device_count()
+        if os.name == 'nt':
+            num_workers = 0
         return DataLoader(
             self.data_predict, 
             batch_size=self.data_config.batch_size, 
