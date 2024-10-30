@@ -95,13 +95,6 @@ class TrainingManagerBase():
         # set up output directory
         self.dir_handler.set_output_dir(self.training_name)
 
-        # save datamodule's validation dataset to the output directory
-        self.data_config.save_val_indices = self.train_config.save_val_indices
-        file_extension = os.path.splitext(self.dir_handler.data_file_name)[1]
-        val_indices_filename = f"val_indices{file_extension}"
-        val_indices_path = os.path.join(self.dir_handler.output_dir, val_indices_filename)
-        self.data_config.save_val_indices_path = val_indices_path
-
         self.data_config.num_workers = self.train_config.num_workers
 
         # setup modules
