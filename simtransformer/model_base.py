@@ -802,6 +802,90 @@ class TransformerBlock(nnModule):
             'output': output,
             })
 
+class MultiHeadAttentionBlock(nnModule):
+    """Implementation of a Transformer Block without MLP layer.
+    """
+
+    def __init__(
+            self, model_config: EasyDict, layer_idx: int=None,
+    ):
+        """
+        Initialize the TransformerBlock module.
+        """
+        super().__init__()
+        
+        hidden_size = model_config.hidden_size
+        num_heads = model_config.num_heads
+        self.relpos_shift = model_config.relpos_shift
+        # check if n_inner is defined in the model_configuration
+        inner_size = model_config.n_inner if hasattr(model_config, "n_inner") else 4 * hidden_size
+
+        self.ln = nn.LayerNorm(hidden_size, eps=model_config.layer_norm_eps) if model_config.use_layer_norm else nn.Identity()
+        self.attn = MultiHeadAttentionDeBERTa(
+            hidden_size=hidden_size,
+            num_heads=num_heads,
+            attention_type=model_config.attention_type,
+            use_bias=model_config.use_bias,
+            attn_pdrop=model_config.attn_pdrop,
+            q_k_v_o_proj_enabled=model_config.q_k_v_o_proj_enabled,
+            relpos_q_k_enabled=model_config.relpos_q_k_enabled,
+            relpos_embed_size=model_config.relpos_embed_size if hasattr(model_config, "relpos_embed_size") else hidden_size, 
+            causal_attn=model_config.causal_attn,
+        )
+        # self.ln_2 = nn.LayerNorm(hidden_size, eps=model_config.layer_norm_eps) if model_config.use_layer_norm else nn.Identity()
+        # self.mlp = MLP(hidden_size, inner_size, model_config.resid_pdrop)
+
+        # store hyperparameters
+        self.hidden_size = hidden_size
+        self.inner_size = inner_size
+
+    def forward(
+        self, 
+        in_x: torch.Tensor,
+        pos_model: Optional[nn.Module] = None,
+        mask: Optional[Union[torch.Tensor, None]] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        logits_shift: Optional[torch.Tensor] = None,
+    ):
+        """
+        Apply a Transformer block to the input tensor.
+
+        Args:
+            in_x (torch.Tensor): A 3D tensor of shape [batch_size, seq_len, input_size].
+            mask (Optional[Union[torch.Tensor, None]]): Optional mask tensor 
+                of shape [batch_size, 1, seq_len, seq_len].
+            head_mask (Optional[torch.Tensor]): Optional head mask tensor.
+
+        Returns:
+            torch.Tensor: A 3D tensor of shape [batch_size, seq_len, hidden_size].
+        """
+
+        ##-----------------Attention-----------------##
+        residual_attn = in_x
+
+        # layer-normalization
+        x = self.ln(in_x)
+        # Apply multi-head self-attention.
+        attn_outputs = self.attn(
+            x, 
+            pos_model=pos_model,
+            mask=mask,
+            head_mask=head_mask,
+            logits_shift=logits_shift,
+        )
+        attn_output, _ = attn_outputs # the `intermediate` is not used in the forward pass, and we will handle it by forward hook.
+
+        # residual connection
+        output = attn_output + residual_attn
+        
+        # if model is in the evaluation mode, store the attention output
+        
+        return output, EasyDict({
+            'input': in_x,
+            'attn_output': attn_output,
+            'output': output,
+            })
+
 class ReadOut(nnModule):
     def __init__(self, 
                  hidden_size: int, 
@@ -946,7 +1030,35 @@ class TransformerEncoder(nnModule):
         #     output = nn.functional.softmax(logits, dim=-1)
         return x
         
+class TransformerEncoderOnlyAttn(TransformerEncoder):
+    """Implementation of Transformer Encoder with only attention blocks."""
 
+    def __init__(
+            self, 
+            model_config: EasyDict,
+            **kwargs: Any,
+    ):
+        """
+        Initialize the TransformerEncoder module.
+
+        Args:
+            model_config (EasyDict): The model_configuration of the model.
+        """
+        super().__init__(model_config=model_config, **kwargs)
+        ## ----------  transformer blocks ---------- ##
+        self.blocks = nnModuleDict(
+            {
+                f"layer_{layer_id}": MultiHeadAttentionBlock(
+                    model_config=model_config,
+                    layer_idx=layer_id,
+                )
+                for layer_id in range(model_config.num_layers)
+            }
+        )
+        ## ----------  layer normalization ---------- ##
+        if model_config.use_layer_norm:
+            self.ln_final = nn.LayerNorm(model_config.hidden_size, eps=model_config.layer_norm_eps)
+        self.use_layer_norm = model_config.use_layer_norm
     
 class LinearWithChannel(nnModule):
     def __init__(self, 

@@ -57,4 +57,10 @@ class GPT2LinearReg(nnModule):
         return output
     
 
-
+class GPT2OnlyAttention(GPT2Standard):
+    """
+    GPT2 model with only attention mechanism.
+    """
+    def __init__(self, config: EasyDict, input_size: int, output_size: int):
+        super().__init__(config, input_size, output_size)
+        self.encoder = TransformerEncoderOnlyAttn(config)
