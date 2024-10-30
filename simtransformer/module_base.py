@@ -626,7 +626,8 @@ class DataModuleBase(lightning.LightningDataModule):
                           batch_size=self.data_config.batch_size, 
                           collate_fn=lambda x: x,
                           shuffle=False,
-                          num_workers=num_workers)
+                          num_workers=num_workers, 
+                          persistent_workers=True)
     
     def predict_dataloader(self):
         num_workers = self.data_config.num_workers * torch.cuda.device_count()
