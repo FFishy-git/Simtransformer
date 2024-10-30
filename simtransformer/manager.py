@@ -207,21 +207,12 @@ class TrainingManagerBase():
     @final
     def probe_fit(self):
         # trainer initialization
-<<<<<<< HEAD
         # checkpoint_callback = ModelCheckpoint(
         #     dirpath=self.dir_handler.output_dir,
         #     filename='{epoch}-{probe_val_loss:.4f}', 
         #     monitor='probe_val_loss',
         #     mode='min',
         # )
-=======
-        checkpoint_callback = ModelCheckpoint(
-            dirpath=self.dir_handler.output_dir,
-            filename='{epoch}-{probe_val_loss:.4f}', 
-            # monitor='probe_val_loss',
-            # mode='min',
-        )
->>>>>>> 07dbe540e4a0bf342bf6149a2147c56bad3c74aa
         lr_monitor = LearningRateMonitor(logging_interval='step')
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
