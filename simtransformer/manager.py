@@ -211,7 +211,7 @@ class TrainingManagerBase():
             dirpath=self.dir_handler.output_dir,
             filename='{epoch}-{probe_val_loss:.4f}', 
             monitor='probe_val_loss',
-            mode='min',
+            # mode='min',
         )
         lr_monitor = LearningRateMonitor(logging_interval='step')
         trainer = Trainer(
