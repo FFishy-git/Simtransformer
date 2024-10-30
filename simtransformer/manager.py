@@ -232,6 +232,17 @@ class TrainingManagerBase():
         )
         trainer.test(self.probe_pipeline, datamodule=self.datamodule)
         return self.probe_pipeline.process_and_reset_channel_loss(pos_label)
+    
+    @final
+    def test(self):
+        trainer = Trainer(
+            max_epochs=self.train_config.max_epochs,
+            logger=self.wandb_logger,
+            # callbacks=[lr_monitor, checkpoint_callback],
+            default_root_dir=self.dir_handler.output_dir,
+        )
+        trainer.test(self.pipeline, datamodule=self.datamodule)
+    
     ## ----------------- Cumstomized functions ----------------- ##
     def get_training_name(self):
         """
