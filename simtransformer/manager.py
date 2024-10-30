@@ -210,7 +210,7 @@ class TrainingManagerBase():
         checkpoint_callback = ModelCheckpoint(
             dirpath=self.dir_handler.output_dir,
             filename='{epoch}-{probe_val_loss:.4f}', 
-            monitor='probe_val_loss',
+            # monitor='probe_val_loss',
             # mode='min',
         )
         lr_monitor = LearningRateMonitor(logging_interval='step')
