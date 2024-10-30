@@ -1,0 +1,7 @@
+__pycache__/
+run/
+.vscode/
+misha/
+slurm_output/
+grid_search.py
+data/
