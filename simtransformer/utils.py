@@ -274,7 +274,10 @@ def token_accuracy(y_hat, y):
 
 def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb_label=None, target_label=None, max_size=16, title=None):
     # check the cosine similarity between the embeddings
-    embedding_np = embedding.cpu().detach().numpy()
+    if isinstance(embedding, torch.Tensor):
+        embedding_np = embedding.cpu().detach().numpy()
+    else:
+        embedding_np = embedding
     if target_embedding is None:
         cos_sim = cosine_similarity(embedding_np, embedding_np)
     else:
