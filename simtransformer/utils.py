@@ -323,3 +323,46 @@ def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb
                 plt.title(title)
             plt.show()
     return cos_sim
+
+
+import torch
+import torch.jit as jit
+import concurrent.futures
+
+def extract_diagonals(tensor, row_idx, diag_idx, dim1=-2, dim2=-1):
+    """
+    Extracts the specified diagonals from a tensor for selected rows.
+
+    Args:
+        tensor (torch.Tensor): The input tensor, assumed to be at least 2D.
+        row_idx (list): The list of row indices to select from each diagonal.
+        diag_idx (list): The list of diagonal indices to extract.
+        dim1 (int): The first dimension to use for extracting diagonals.
+        dim2 (int): The second dimension to use for extracting diagonals.
+
+    Returns:
+        torch.Tensor: A tensor of shape (..., len(row_idx), len(diag_idx)).
+    """
+    # Initialize the output tensor to store the selected diagonals.
+    result_shape = (*tensor.shape[:-2], len(row_idx), len(diag_idx))
+    result = torch.empty(result_shape, dtype=tensor.dtype, device=tensor.device)
+
+    row_idx = torch.tensor(row_idx, device=tensor.device)
+
+    def extract_single_diagonal(j, diag):
+        diagonal = tensor.diagonal(offset=diag, dim1=dim1, dim2=dim2)
+        if diag < 0:
+            # If the diagonal is below the main diagonal, we need to shift the row indices accordingly.
+            row_idx_shifted = row_idx + diag
+        else:
+            row_idx_shifted = row_idx
+        return j, diagonal[..., row_idx_shifted]
+
+    # Use ThreadPoolExecutor to parallelize diagonal extraction.
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(extract_single_diagonal, j, diag) for j, diag in enumerate(diag_idx)]
+        for future in concurrent.futures.as_completed(futures):
+            j, selected_diagonal = future.result()
+            result[..., :, j] = selected_diagonal
+
+    return result
