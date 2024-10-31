@@ -114,18 +114,26 @@ class EasyDict(AttributeDict):
             else:
                 self[k] = v
 
-    def update(self, other_dict):
+    def update(self, other_dict, recursive=True):
         """This function overwrites the original update method of the dictionary class. It updates the dictionary with another dictionary. The hierarchical construction of EasyDict is called recursively.
-
+            
         Args:
             other_dict: a dictionary to update the current dictionary with.
+            recursive: a boolean to indicate whether to recursively update the dictionary. Defaults to True.
+            If false, this function will rewrite the direct key-value pairs of the current dictionary without checking for nested dictionaries (and they will be overwritten).
+            If true, this function is more like adding the key-value pairs (if we consider the flattened form of the dictionary).
         """
         # if other_dict is empty, return
         if not other_dict:
             return
         for k, v in other_dict.items():
             if isinstance(v, dict):
-                self[k] = EasyDict(v)
+                if recursive == False or k not in self.keys():
+                    self[k] = EasyDict(v)
+                else:
+                    if not isinstance(self[k], EasyDict):
+                        self[k] = EasyDict(self[k])
+                    self[k].update(v, recursive=True)
             else:
                 self[k] = v
                 

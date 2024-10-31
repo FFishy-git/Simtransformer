@@ -762,7 +762,7 @@ class ProbePipelineBase(PipelineBase):
             loss_p_model=probe_loss_model)
         # initialize the CustomPipeline
         self.added_probe_target_key = added_probe_target_key
-        self.added_vs_target_key = added_vis_target_key
+        self.added_vis_target_key = added_vis_target_key
         self.probe_loss_model = probe_loss_model
         self.pipeline = pipeline
         
@@ -774,7 +774,7 @@ class ProbePipelineBase(PipelineBase):
         
         ## ---- initialize the dictionary for hooking attention ---- ##
         vis_dict = EasyDict({})
-        for added_key in self.added_vs_target_key:
+        for added_key in self.added_vis_target_key:
             vis_dict.setattr_with_string(added_key, None)
         self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
 
