@@ -1116,5 +1116,38 @@ class LinearWithChannel(nnModule):
         return output
         
         
-
+class SparseAutoEncoder(nnModule):
+    def __init__(self, 
+                 input_size, 
+                 expand_factor,
+                 ):
+        super(SparseAutoEncoder, self).__init__()
+        self.expand_factor = expand_factor
+        self.hidden_size = int(input_size * expand_factor)
         
+        self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
+        self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
+        self.act = nn.ReLU()
+        
+        # weight tying
+        self.decoder.weight.data = self.encoder.weight.data.T
+        
+        # initialize bias
+        # self.encoder.bias.data.fill_(0.0)
+        
+        # initialize the encoder weight
+        nn.init.xavier_uniform_(self.encoder.weight.data, gain=nn.init.calculate_gain('relu'))
+        
+    def forward(self, x: torch.Tensor):
+        """
+        Args:
+        - x: tensor of shape (batch_size, input_size)
+        """
+        # Step 1: encode
+        x = self.encoder(x)
+        post_act = self.act(x)
+        
+        # Step 2: decode
+        x = self.decoder(post_act)
+        
+        return x, post_act
