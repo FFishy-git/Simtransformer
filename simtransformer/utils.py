@@ -280,7 +280,15 @@ def token_accuracy(y_hat, y):
     
     return accuracy
 
-def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb_label=None, target_label=None, max_size=16, title=None, diag_only=False):
+def check_cosine_similarity(embedding, 
+                            target_embedding=None, 
+                            verbose=False, 
+                            emb_label=None, 
+                            target_label=None, 
+                            max_size=16,
+                            title=None, 
+                            diag_only=False, 
+                            figsize=(5, 3)):
     # check the cosine similarity between the embeddings
     if not diag_only:
         if isinstance(embedding, torch.Tensor):
@@ -341,7 +349,8 @@ def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb
         cos_sim = inner_product / (norm_1 * norm_2)
         if verbose:
             # use histogram to show the distribution of cosine similarity
-            plt.hist(cos_sim, bins='auto')
+            plt.figure(figsize=figsize)
+            sns.histplot(cos_sim, bins='auto')
             plt.xlabel("Cosine Similarity")
             plt.ylabel("Frequency")
             if title is not None:
@@ -349,20 +358,25 @@ def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb
             plt.show()
         return cos_sim
 
-def calculate_l2_similarity(input, target, verbose=False, title=None):
+def calculate_l2_similarity(input, 
+                            target, 
+                            verbose=False, 
+                            title=None, 
+                            figsize=(5, 3)):
     l2_dist = torch.norm(input - target, dim=-1)
     norm_1 = torch.norm(input, dim=-1)
     norm_2 = torch.norm(target, dim=-1)
     l2_dist_similarity = 1 - l2_dist / torch.sqrt(norm_1 * norm_2)
     if verbose:
         # histogram of the l2_dist_similarity
-        plt.hist(l2_dist_similarity.detach().cpu().numpy(), bins='auto')
+        plt.figure(figsize=figsize)
+        sns.histplot(l2_dist_similarity.detach().cpu().numpy(), bins='auto')
         plt.xlabel("L2 Distance Similarity")
         plt.ylabel("Frequency")
         if title is not None:
             plt.title(title)
         plt.show()
-    return l2_dist_similarity
+    return l2_dist_similarity.cpu().detach().numpy()
 
 import torch
 import torch.jit as jit
