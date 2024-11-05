@@ -280,50 +280,89 @@ def token_accuracy(y_hat, y):
     
     return accuracy
 
-def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb_label=None, target_label=None, max_size=16, title=None):
+def check_cosine_similarity(embedding, target_embedding=None, verbose=False, emb_label=None, target_label=None, max_size=16, title=None, diag_only=False):
     # check the cosine similarity between the embeddings
-    if isinstance(embedding, torch.Tensor):
-        embedding_np = embedding.cpu().detach().numpy()
-    else:
-        embedding_np = embedding
-    if target_embedding is None:
-        cos_sim = cosine_similarity(embedding_np, embedding_np)
-    else:
-        target_embedding_np = target_embedding.cpu().detach().numpy()
-        cos_sim = cosine_similarity(embedding_np, target_embedding_np)
-    if verbose:
-        if target_embedding is None:
-            plt.figure(figsize=(max_size + 2, max_size))
-            sns.heatmap(cos_sim, annot=False)
-            if emb_label is not None:
-                fontsize = max(6, 12 - len(emb_label) // 10)
-                plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
-                plt.yticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=0, fontsize=fontsize)
-            if title is not None:
-                plt.title(title)
-            plt.show()
+    if not diag_only:
+        if isinstance(embedding, torch.Tensor):
+            embedding_np = embedding.cpu().detach().numpy()
         else:
-            # select a size according to the relative length of embedding and target_embedding
-            size = (len(embedding_np), len(target_embedding_np))
-            # control the maximum size of the heatmap to be 16 while keeping the aspect ratio
-            if size[0] > max_size:
-                size = (max_size, int(max_size * size[1] / size[0]))
-            elif size[1] > max_size:
-                size = (int(max_size * size[0] / size[1]), max_size)
-            size = (size[1] + 2, size[0])
-            plt.figure(figsize=size)
-            sns.heatmap(cos_sim, annot=False)
-            if emb_label is not None:
-                fontsize = max(6, 12 - len(emb_label) // 10)
-                plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
-            if target_label is not None:
-                fontsize = max(6, 12 - len(target_label) // 10)
-                plt.yticks(ticks=np.arange(len(target_label)), labels=target_label, rotation=0, fontsize=fontsize)
+            embedding_np = embedding
+        if target_embedding is None:
+            cos_sim = cosine_similarity(embedding_np, embedding_np)
+        else:
+            target_embedding_np = target_embedding.cpu().detach().numpy()
+            cos_sim = cosine_similarity(embedding_np, target_embedding_np)
+        if verbose:
+            if target_embedding is None:
+                plt.figure(figsize=(max_size + 2, max_size))
+                sns.heatmap(cos_sim, annot=False)
+                if emb_label is not None:
+                    fontsize = max(6, 12 - len(emb_label) // 10)
+                    plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
+                    plt.yticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=0, fontsize=fontsize)
+                if title is not None:
+                    plt.title(title)
+                plt.show()
+            else:
+                # select a size according to the relative length of embedding and target_embedding
+                size = (len(embedding_np), len(target_embedding_np))
+                # control the maximum size of the heatmap to be 16 while keeping the aspect ratio
+                if size[0] > max_size:
+                    size = (max_size, int(max_size * size[1] / size[0]))
+                elif size[1] > max_size:
+                    size = (int(max_size * size[0] / size[1]), max_size)
+                size = (size[1] + 2, size[0])
+                plt.figure(figsize=size)
+                sns.heatmap(cos_sim, annot=False)
+                if emb_label is not None:
+                    fontsize = max(6, 12 - len(emb_label) // 10)
+                    plt.xticks(ticks=np.arange(len(emb_label)), labels=emb_label, rotation=90, fontsize=fontsize)
+                if target_label is not None:
+                    fontsize = max(6, 12 - len(target_label) // 10)
+                    plt.yticks(ticks=np.arange(len(target_label)), labels=target_label, rotation=0, fontsize=fontsize)
+                if title is not None:
+                    plt.title(title)
+                plt.show()
+        return cos_sim
+    else:
+        if isinstance(embedding, torch.Tensor):
+            embedding_np = embedding.cpu().detach().numpy()
+        else:
+            embedding_np = embedding
+        if isinstance(target_embedding, torch.Tensor):
+            target_embedding_np = target_embedding.cpu().detach().numpy()
+        elif target_embedding is None:
+            raise ValueError("target_embedding cannot be None when diag_only is True.")
+        else:
+            target_embedding_np = target_embedding
+        inner_product = np.sum(embedding_np * target_embedding_np, axis=-1)
+        norm_1 = np.linalg.norm(embedding_np, axis=-1)
+        norm_2 = np.linalg.norm(target_embedding_np, axis=-1)
+        cos_sim = inner_product / (norm_1 * norm_2)
+        if verbose:
+            # use histogram to show the distribution of cosine similarity
+            plt.hist(cos_sim, bins='auto')
+            plt.xlabel("Cosine Similarity")
+            plt.ylabel("Frequency")
             if title is not None:
                 plt.title(title)
             plt.show()
-    return cos_sim
+        return cos_sim
 
+def calculate_l2_similarity(input, target, verbose=False, title=None):
+    l2_dist = torch.norm(input - target, dim=-1)
+    norm_1 = torch.norm(input, dim=-1)
+    norm_2 = torch.norm(target, dim=-1)
+    l2_dist_similarity = 1 - l2_dist / torch.sqrt(norm_1 * norm_2)
+    if verbose:
+        # histogram of the l2_dist_similarity
+        plt.hist(l2_dist_similarity.detach().cpu().numpy(), bins='auto')
+        plt.xlabel("L2 Distance Similarity")
+        plt.ylabel("Frequency")
+        if title is not None:
+            plt.title(title)
+        plt.show()
+    return l2_dist_similarity
 
 import torch
 import torch.jit as jit
@@ -366,3 +405,4 @@ def extract_diagonals(tensor, row_idx, diag_idx, dim1=-2, dim2=-1):
             result[..., :, j] = selected_diagonal
 
     return result
+
