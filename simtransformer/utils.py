@@ -280,6 +280,7 @@ def token_accuracy(y_hat, y):
     
     return accuracy
 
+import copy
 def check_cosine_similarity(embedding, 
                             target_embedding=None, 
                             verbose=False, 
@@ -336,16 +337,18 @@ def check_cosine_similarity(embedding,
         if isinstance(embedding, torch.Tensor):
             embedding_np = embedding.cpu().detach().numpy()
         else:
-            embedding_np = embedding
+            embedding_np = copy.deepcopy(embedding)
+            embedding = torch.tensor(embedding, dtype=torch.float32)
         if isinstance(target_embedding, torch.Tensor):
             target_embedding_np = target_embedding.cpu().detach().numpy()
         elif target_embedding is None:
             raise ValueError("target_embedding cannot be None when diag_only is True.")
         else:
-            target_embedding_np = target_embedding
-        inner_product = np.sum(embedding_np * target_embedding_np, axis=-1)
-        norm_1 = np.linalg.norm(embedding_np, axis=-1)
-        norm_2 = np.linalg.norm(target_embedding_np, axis=-1)
+            target_embedding_np = copy.deepcopy(target_embedding)
+            target_embedding = torch.tensor(target_embedding, dtype=torch.float32)
+        inner_product = torch.sum(embedding * target_embedding, dim=-1).cpu().detach().numpy()
+        norm_1 = torch.norm(embedding, dim=-1).cpu().detach().numpy()
+        norm_2 = torch.norm(target_embedding, dim=-1).cpu().detach().numpy()
         cos_sim = inner_product / (norm_1 * norm_2)
         if verbose:
             # use histogram to show the distribution of cosine similarity
