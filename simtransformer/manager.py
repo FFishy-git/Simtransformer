@@ -1,4 +1,4 @@
-from .module_base import PipelineBase, ConfigBase, DataModuleBase, Vocab, ProbePipelineBase, DirectoryHandler
+from .module_base import PipelineBase, ConfigBase, DataModuleBase, Vocab, ProbePipelineBase, DirectoryHandlerBase
 from typing import Optional, final
 import os, time
 import torch.nn as nn
@@ -16,7 +16,7 @@ class TrainingManagerBase():
     TrainingManagerBase is a base class for managing the training process of a machine learning model. 
     It handles the initialization of various components required for training, such as configuration, data modules, pipelines, and logging. It also provides methods for setting up modules, restoring state from checkpoints, and fitting the model.
     Attributes:
-        dir_handler (DirectoryHandler): Handles directory paths for loading and saving configurations, checkpoints, etc.
+        dir_handler (DirectoryHandlerBase): Handles directory paths for loading and saving configurations, checkpoints, etc.
         abstract_config (ConfigBase): Abstract class for configuration management.
         abstract_pipeline (PipelineBase): Abstract class for pipeline management.
         abstract_datamodule (DataModuleBase): Abstract class for data module management.
@@ -49,7 +49,7 @@ class TrainingManagerBase():
             Prepares keyword arguments for initializing the pipeline.
     """
     def __init__(self, 
-                 dir_handler: DirectoryHandler,
+                 dir_handler: DirectoryHandlerBase,
                  abstract_config: ConfigBase = ConfigBase,
                  abstract_pipeline: PipelineBase = PipelineBase,
                  abstract_datamodule: DataModuleBase = DataModuleBase,
@@ -120,7 +120,7 @@ class TrainingManagerBase():
                       abstract_probepipeline: ProbePipelineBase = ProbePipelineBase,
                       **kwargs,
                       ):
-        dir_handler = DirectoryHandler.load_from_file(path_to_dirhandler)
+        dir_handler = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
         return cls(dir_handler,
                    abstract_config,
                    abstract_pipeline,
@@ -153,7 +153,7 @@ class TrainingManagerBase():
             prefix_for_training_name = ''
         training_name = prefix_for_training_name + last_run_name
 
-        dir_handler = DirectoryHandler(
+        dir_handler = DirectoryHandlerBase(
             load_data_abs_dir=os.path.join(task_dir, 'data'),
             data_file_name=None,
             vocab_file_name=None,
@@ -165,7 +165,7 @@ class TrainingManagerBase():
         )
 
         path_to_dirhandler = os.path.join(last_run_dir, 'configurations', 'dirhandler.yaml')
-        dir_handler_old = DirectoryHandler.load_from_file(path_to_dirhandler)
+        dir_handler_old = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
         dir_handler.data_file_name = dir_handler_old.data_file_name
         dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
 

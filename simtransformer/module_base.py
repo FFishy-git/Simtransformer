@@ -549,7 +549,7 @@ class DataModuleBase(lightning.LightningDataModule):
     It provides methods for setting up the data, creating data loaders, and transforming batches.
     Attributes:
         data_config (EasyDict): Data configuration.
-        dir_handler (DirectoryHandler): Directory handler for loading and saving data.
+        dir_handler (DirectoryHandlerBase): Directory handler for loading and saving data.
         vocab (Optional[Vocab]): Vocabulary for the data.
         data_train (Any): Training data.
         data_val (Any): Validation data.
@@ -581,11 +581,11 @@ class DataModuleBase(lightning.LightningDataModule):
         transfer_batch_to_device(batch, device, dataloader_idx):
             Transfer the batch to the device.
         """
-    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandler):
+    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandlerBase):
         """
         Args:
             data_config (EasyDict): data configuration
-            dir_handler (DirectoryHandler): directory handler
+            dir_handler (DirectoryHandlerBase): directory handler
         """
         super().__init__()
         self.data_config = data_config
