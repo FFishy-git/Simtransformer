@@ -11,7 +11,7 @@ import os, copy, operator
 import pandas as pd
 import math, itertools
 
-class DirectoryHandler:
+class DirectoryHandlerBase:
     def __init__(self, 
                  load_data_abs_dir: str,
                  data_file_name: str,
