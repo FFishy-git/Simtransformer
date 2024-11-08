@@ -170,7 +170,7 @@ class TrainingManagerBase():
         dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
 
         # get the data directory
-        data_dir = os.path.basename(os.path.normpath(dir_handler_old.load_data_abs_dir))
+        data_dir = os.path.basename(os.path.normpath(dir_handler_old.load_data_abs_dir)) if 'data_dir' not in kwargs else kwargs['data_dir']
         dir_handler.load_data_abs_dir = os.path.join(task_dir, 'data', data_dir)
 
         return cls(
