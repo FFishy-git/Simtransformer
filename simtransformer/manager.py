@@ -133,7 +133,6 @@ class TrainingManagerBase():
     def load_training_manager(
         cls,
         task_dir: str,
-        data_dir: str,
         last_run_name: str,
         ckpt_file_name: Optional[str],
         prefix_for_training_name: Optional[str] = None,
@@ -155,7 +154,7 @@ class TrainingManagerBase():
         training_name = prefix_for_training_name + last_run_name
         
         dir_handler = DirectoryHandlerBase(
-            load_data_abs_dir=os.path.join(task_dir, 'data', data_dir),
+            load_data_abs_dir=None,
             data_file_name=None,
             vocab_file_name=None,
             load_config_abs_dir=os.path.join(last_run_dir, 'configurations'),
@@ -169,7 +168,11 @@ class TrainingManagerBase():
         dir_handler_old = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
         dir_handler.data_file_name = dir_handler_old.data_file_name
         dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
-        
+
+        # get the data directory
+        data_dir = os.path.basename(os.path.normpath(dir_handler_old.load_data_abs_dir))
+        dir_handler.load_data_abs_dir = os.path.join(task_dir, 'data', data_dir)
+
         return cls(
             dir_handler=dir_handler,
             abstract_config=abstract_config,
