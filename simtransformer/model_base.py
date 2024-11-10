@@ -688,9 +688,11 @@ class MLP(nnModule):
         self.proj = nn.Linear(intermediate_size, hidden_size, bias=True)
         self.dropout = nn.Dropout(resid_pdrop)
 
-    def forward(self, x):
+    def forward(self, x, neuron_mask=None):
         pre_activation = self.fc(x)
         post_activation = self.act(pre_activation)
+        if neuron_mask is not None:
+            post_activation = post_activation * neuron_mask
         output = self.proj(post_activation)
         output = self.dropout(output)
         intermediate = EasyDict({
