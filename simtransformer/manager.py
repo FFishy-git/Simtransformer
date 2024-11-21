@@ -10,6 +10,7 @@ from .utils import clever_load, clever_save, EasyDict
 import torch
 # import deepcopy
 from copy import deepcopy
+import wandb
 
 class TrainingManagerBase():
     """
@@ -224,6 +225,13 @@ class TrainingManagerBase():
     def wandb_initialization(self, use_wandb):
         if use_wandb:
             wandb_config = self.train_config.wandb_config
+                    # Reinitialize Wandb (this creates a new run each time)
+            wandb.init(reinit=True,  # Reinitialize the run for each call
+                    project=wandb_config.wandb_project,
+                    entity=wandb_config.wandb_entity,
+                    name=self.dir_handler.training_name
+                    )
+
             wandb_logger = WandbLogger(
                     name=self.dir_handler.training_name,
                     project=wandb_config.wandb_project,
