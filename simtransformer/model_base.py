@@ -1153,3 +1153,24 @@ class SparseAutoEncoder(nnModule):
         x = self.decoder(post_act)
         
         return x, post_act
+
+
+# add a intermediate model where the gradient backpropagation is scaled by a factor
+class GradRescaler(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, scale):
+        ctx.save_for_backward(scale)
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        scale = ctx.saved_tensors
+        return grad_output * scale, None
+    
+class LayerWithGradRescale(nn.Module):
+    def __init__(self):
+        super(LayerWithGradRescale, self).__init__()
+        self.fn = GradRescaler.apply
+    
+    def forward(self, x, scale):
+        return self.fn(x, scale)
