@@ -1159,7 +1159,7 @@ class SparseAutoEncoder(nnModule):
 class GradRescaler(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, scale):
-        ctx.save_for_backward(scale)
+        ctx.save_for_backward(torch.tensor([scale]))
         return input
 
     @staticmethod
