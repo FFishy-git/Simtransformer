@@ -330,7 +330,10 @@ class PipelineBase(lightning.LightningModule):
         else:
             # use no scheduler
             scheduler = None
-        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        if scheduler is not None:
+            return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        else:
+            return optimizer
     
     def lr_scheduler_step(
             self,
