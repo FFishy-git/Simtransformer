@@ -1165,7 +1165,7 @@ class GradRescaler(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         scale = ctx.saved_tensors[0]
-        return grad_output * scale, None
+        return grad_output * scale.item(), None
     
 class LayerWithGradRescale(nn.Module):
     def __init__(self):

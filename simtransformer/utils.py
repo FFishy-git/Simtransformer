@@ -585,7 +585,7 @@ class signSGD(optim.Optimizer):
 
         return loss
     
-from pytorch_lightning.callbacks import Callback
+from lightning.pytorch.callbacks import Callback
     
 class EpochCheckpointCallback(Callback):
     def __init__(self, ckpt_epochs, run_dir):
