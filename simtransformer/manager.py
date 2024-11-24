@@ -72,7 +72,8 @@ class TrainingManagerBase():
         # set up configuration
         config_dir = self.dir_handler.load_config_dir
         self.config = self.abstract_config(config_dir)
-        self.config.override(kwargs) 
+        verbose = kwargs.get('verbose', False)
+        self.config.override(kwargs, verbose=verbose)
 
         # seed_everything
         if self.train_config.seed is not None:
