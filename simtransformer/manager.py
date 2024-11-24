@@ -96,7 +96,8 @@ class TrainingManagerBase():
         self.training_name = self.get_training_name()
         # set up output directory
         self.dir_handler.set_output_dir(self.training_name)
-
+        self.config.override({'output_dir': self.dir_handler.output_dir}, verbose=verbose)
+        
         self.data_config.num_workers = self.train_config.num_workers
 
         # setup modules
@@ -249,7 +250,7 @@ class TrainingManagerBase():
             config_copy.update({'dir_handler': self.dir_handler.__dict__})
             wandb_logger.log_hyperparams(config_copy)
         else:
-            wandb_logger = None
+            wandb_logger = False
         return wandb_logger
     
     def generate_customed_trainer(self, pipeline_type='train', callbacks_ls=[], **kwargs):
@@ -286,8 +287,8 @@ class TrainingManagerBase():
                         every_n_epochs=1, 
                         save_top_k=-1,
                     ))
-                # check if the callback name is 'epoch_{epoch_list}_ckpt' where epoch_list is a list of integers
-                elif re.match(r'epoch_\{(\d+(?:,\d+)*)\}_ckpt', cb):
+                # check if the callback name is 'epoch_[a, b, c...]_ckpt' where a, b, c... is a list of integers
+                elif re.match(r'epoch_\[.*\]_ckpt', cb):
                     ckpt_epochs = [int(i) for i in cb.split('_')[1][1:-1].split(',')]
                     callback_ls.append(EpochCheckpointCallback(
                         ckpt_epochs=ckpt_epochs,
@@ -305,7 +306,10 @@ class TrainingManagerBase():
                 else:
                     print(f"Unknown callback name skipped: {cb}")
             elif cb.endswith('lr_monitor'):
-                callback_ls.append(LearningRateMonitor(logging_interval='step'))
+                if self.wandb_logger is not False:
+                    callback_ls.append(LearningRateMonitor(logging_interval='step'))
+                else:
+                    print("Wandb logger is not initialized, skipping lr_monitor callback.")
             else:
                 print(f"Unknown callback name skipped: {cb}")
         
@@ -318,6 +322,7 @@ class TrainingManagerBase():
             callbacks=callback_ls,
             max_epochs=self.train_config.max_epochs,
         )
+        return trainer
                 
     
     @final
