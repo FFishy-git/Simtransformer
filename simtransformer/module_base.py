@@ -104,12 +104,12 @@ class Vocab:
     def __init__(self, input: Union[list, dict]):
         if isinstance(input, list):
             self.vocab = {}
-            # get the unique tokens in input
-            tokens = set(input)
-            # add special tokens
-            tokens.update(["<eos>", "<pad>"])
+            if "<eos>" not in input:
+                input.append("<eos>")
+            if "<pad>" not in input:
+                input.append("<pad>")
             # create a vocab from the tokens
-            self.vocab = {token: idx for idx, token in enumerate(tokens)}
+            self.vocab = {token: idx for idx, token in enumerate(input)}
         elif isinstance(input, dict):
             self.vocab = input
             # add special tokens if not already present
