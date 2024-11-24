@@ -246,7 +246,6 @@ class TrainingManagerBase():
             wandb_logger = None
         return wandb_logger
     
-    @final
     def fit(self):
         # trainer initialization
         checkpoint_callback = ModelCheckpoint(
@@ -265,7 +264,6 @@ class TrainingManagerBase():
         )
         trainer.fit(self.pipeline, datamodule=self.datamodule)
         
-    @final
     def probe_fit(self):
         # trainer initialization
         # checkpoint_callback = ModelCheckpoint(
@@ -283,7 +281,6 @@ class TrainingManagerBase():
         )
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
 
-    @final
     def probe_test(self, pos_label):
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
@@ -294,7 +291,6 @@ class TrainingManagerBase():
         trainer.test(self.probe_pipeline, datamodule=self.datamodule)
         return self.probe_pipeline.process_and_reset_channel_loss(pos_label)
     
-    @final
     def test(self):
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
