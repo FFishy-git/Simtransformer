@@ -588,11 +588,11 @@ class signSGD(optim.Optimizer):
 from lightning.pytorch.callbacks import Callback
     
 class EpochCheckpointCallback(Callback):
-    def __init__(self, ckpt_epochs, run_dir):
+    def __init__(self, ckpt_epochs, dirpath):
         super().__init__()
         self.ckpt_epochs = ckpt_epochs
-        self.run_dir = run_dir
+        self.dirpath = dirpath
 
     def on_train_epoch_end(self, trainer, pl_module):
         if trainer.current_epoch in self.ckpt_epochs:
-            trainer.save_checkpoint(os.path.join(self.run_dir, f'epoch_{trainer.current_epoch:02d}.ckpt'))
+            trainer.save_checkpoint(os.path.join(self.dirpath, f'epoch={trainer.current_epoch:02d}.ckpt'))

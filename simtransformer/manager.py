@@ -6,9 +6,9 @@ from .model_bank import GPT2Standard
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.loggers import WandbLogger
-from .utils import clever_load, clever_save, EasyDict
+from .utils import clever_load, clever_save, EasyDict, EpochCheckpointCallback
 import torch
-# import deepcopy
+import re
 from copy import deepcopy
 import wandb
 
@@ -134,49 +134,55 @@ class TrainingManagerBase():
     @classmethod
     def load_training_manager(
         cls,
-        task_dir: str,
-        last_run_name: str,
-        ckpt_file_name: Optional[str],
+        last_run_dir: str,
+        ckpt_file_path: Optional[str],
         prefix_for_training_name: Optional[str] = None,
+        new_training_name: Optional[str] = None,
         abstract_config: ConfigBase = ConfigBase,
         abstract_pipeline: PipelineBase = PipelineBase,
         abstract_datamodule: DataModuleBase = DataModuleBase,
         **kwargs
     ):
 
-        last_run_dir = os.path.join(task_dir, 'run', last_run_name)
-        if ckpt_file_name is None:
+        last_run_name = os.path.basename(last_run_dir)
+        # suppose last_run_dir has the structure 'task_dir/run/last_run_name', get the task_dir
+        task_dir = os.path.dirname(os.path.dirname(last_run_dir))
+        if ckpt_file_path is None:
             # search for the latest checkpoint file
             ckpt_files = [f for f in os.listdir(last_run_dir) if f.endswith('.ckpt')]
             ckpt_files.sort()
-            ckpt_file_name = ckpt_files[-1]
-        load_ckpt_abs_path = os.path.join(last_run_dir, ckpt_file_name)
+            ckpt_file_path = os.path.join(last_run_dir, ckpt_files[-1])
         if prefix_for_training_name is None:
             prefix_for_training_name = ''
         training_name = prefix_for_training_name + last_run_name
         
-        dir_handler = DirectoryHandlerBase(
-            load_data_abs_dir=None,
-            data_file_name=None,
-            vocab_file_name=None,
-            load_config_abs_dir=os.path.join(last_run_dir, 'configurations'),
-            load_ckpt_abs_path=load_ckpt_abs_path,
-            output_abs_dir=None,
-            create_run_under_abs_dir=task_dir,
-            training_name=training_name,
-        )
+        if new_training_name is not None:
+            training_name = new_training_name
+        
+        # dir_handler = DirectoryHandlerBase(
+        #     load_data_abs_dir=None,
+        #     data_file_name=None,
+        #     vocab_file_name=None,
+        #     load_config_abs_dir=os.path.join(last_run_dir, 'configurations'),
+        #     load_ckpt_abs_path=ckpt_file_path,
+        #     output_abs_dir=None,
+        #     create_run_under_abs_dir=task_dir,
+        #     training_name=training_name,
+        # )
 
         path_to_dirhandler = os.path.join(last_run_dir, 'configurations', 'dirhandler.yaml')
         dir_handler_old = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
-        dir_handler.data_file_name = dir_handler_old.data_file_name
-        dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
+        # dir_handler.data_file_name = dir_handler_old.data_file_name
+        # dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
 
         # get the data directory
         data_dir = os.path.basename(os.path.normpath(dir_handler_old.load_data_abs_dir)) if 'data_dir' not in kwargs else kwargs['data_dir']
-        dir_handler.load_data_abs_dir = os.path.join(task_dir, 'data', data_dir)
+        dir_handler_old.load_data_abs_dir = os.path.join(task_dir, 'data', data_dir)
+        
+        dir_handler_old.output_abs_dir = os.path.join(task_dir, 'run', training_name)
 
         return cls(
-            dir_handler=dir_handler,
+            dir_handler=dir_handler_old,
             abstract_config=abstract_config,
             abstract_pipeline=abstract_pipeline,
             abstract_datamodule=abstract_datamodule,
@@ -246,6 +252,75 @@ class TrainingManagerBase():
             wandb_logger = None
         return wandb_logger
     
+    def generate_customed_trainer(self, pipeline_type='train', callbacks_ls=[], **kwargs):
+        if pipeline_type == 'train':
+            pipeline = self.pipeline
+        elif pipeline_type == 'probe':
+            pipeline = self.probe_pipeline
+        
+        callback_ls = []
+        for cb in callbacks_ls:
+            if cb.endswith('_ckpt'):
+                if cb == 'min_val_loss_ckpt':
+                    callback_ls.append(ModelCheckpoint(
+                        dirpath=self.dir_handler.output_dir,
+                        filename='{epoch}-{val_loss:.4f}', 
+                        monitor='val_loss',
+                        mode='min',
+                    ))
+                # check if the callback name is 'per_{n}_epoch_ckpt' where n is an integer
+                elif re.match(r'per_\d+_epoch_ckpt', cb):
+                    n = int(cb.split('_')[1])
+                    callback_ls.append(ModelCheckpoint(
+                        dirpath=self.dir_handler.output_dir,
+                        filename='{epoch}-{val_loss:.4f}', 
+                        monitor='val_loss',
+                        every_n_epochs=n, 
+                        save_top_k=-1,
+                    ))
+                elif cb == 'per_epoch_ckpt':
+                    callback_ls.append(ModelCheckpoint(
+                        dirpath=self.dir_handler.output_dir,
+                        filename='{epoch}-{val_loss:.4f}', 
+                        monitor='val_loss',
+                        every_n_epochs=1, 
+                        save_top_k=-1,
+                    ))
+                # check if the callback name is 'epoch_{epoch_list}_ckpt' where epoch_list is a list of integers
+                elif re.match(r'epoch_\{(\d+(?:,\d+)*)\}_ckpt', cb):
+                    ckpt_epochs = [int(i) for i in cb.split('_')[1][1:-1].split(',')]
+                    callback_ls.append(EpochCheckpointCallback(
+                        ckpt_epochs=ckpt_epochs,
+                        dirpath=self.dir_handler.output_dir,
+                    ))
+                # check if the callback name is 'top_{k}_ckpt' where k is an integer
+                elif re.match(r'top_\d+_ckpt', cb):
+                    k = int(cb.split('_')[1])
+                    callback_ls.append(ModelCheckpoint(
+                        dirpath=self.dir_handler.output_dir,
+                        filename='{epoch}-{val_loss:.4f}', 
+                        monitor='val_loss',
+                        save_top_k=k,
+                    ))
+                else:
+                    print(f"Unknown callback name skipped: {cb}")
+            elif cb.endswith('lr_monitor'):
+                callback_ls.append(LearningRateMonitor(logging_interval='step'))
+            else:
+                print(f"Unknown callback name skipped: {cb}")
+        
+        if len(callback_ls) == 0:
+            callback_ls = None
+        
+        trainer = Trainer(
+            logger=self.wandb_logger,
+            default_root_dir=self.dir_handler.output_dir,
+            callbacks=callback_ls,
+            max_epochs=self.train_config.max_epochs,
+        )
+                
+    
+    @final
     def fit(self):
         # trainer initialization
         checkpoint_callback = ModelCheckpoint(
@@ -264,6 +339,7 @@ class TrainingManagerBase():
         )
         trainer.fit(self.pipeline, datamodule=self.datamodule)
         
+    @final
     def probe_fit(self):
         # trainer initialization
         # checkpoint_callback = ModelCheckpoint(
@@ -281,6 +357,7 @@ class TrainingManagerBase():
         )
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
 
+    @final
     def probe_test(self, pos_label):
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
@@ -291,6 +368,7 @@ class TrainingManagerBase():
         trainer.test(self.probe_pipeline, datamodule=self.datamodule)
         return self.probe_pipeline.process_and_reset_channel_loss(pos_label)
     
+    @final
     def test(self):
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
