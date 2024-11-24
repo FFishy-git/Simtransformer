@@ -104,6 +104,8 @@ class Vocab:
     def __init__(self, input: Union[list, dict]):
         if isinstance(input, list):
             self.vocab = {}
+            if "<bos>" not in input:
+                input.append("<bos>")
             if "<eos>" not in input:
                 input.append("<eos>")
             if "<pad>" not in input:
@@ -113,6 +115,8 @@ class Vocab:
         elif isinstance(input, dict):
             self.vocab = input
             # add special tokens if not already present
+            if "<bos>" not in self.vocab:
+                self.vocab["<bos>"] = len(self.vocab)
             if "<eos>" not in self.vocab:
                 self.vocab["<eos>"] = len(self.vocab)
             if "<pad>" not in self.vocab:
