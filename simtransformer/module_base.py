@@ -200,6 +200,10 @@ class ConfigBase(EasyDict):
     def override(self, kwargs: dict, verbose: bool = False):
         """
         Override the configurations with the given kwargs.
+        There are two ways to override the configurations:
+        
+        - If the key in kwargs has the prefix of the configuration, e.g., `model_config.dim`, the corresponding key in the corresponding configuration will be updated.
+        - If the key in kwargs does not have the prefix of the configuration, the key will be added to all the sub-configurations by running the `setattr_with_string` function. An example of key of this kind is `cosine_scheduler_config.warmup_steps`.
         """
         # first check if the kwargs start with self.keys(), if so update the corresponding key
         for key, var in kwargs.items():
