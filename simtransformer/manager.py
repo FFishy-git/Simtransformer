@@ -350,6 +350,8 @@ class TrainingManagerBase():
             callbacks=[lr_monitor, checkpoint_callback],
             default_root_dir=self.dir_handler.output_dir,
         )
+        precision = getattr(self.train_config, 'matmul_precision', 'highest')
+        torch.set_float32_matmul_precision(precision)
         trainer.fit(self.pipeline, datamodule=self.datamodule)
         
     @final
