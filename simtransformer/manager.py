@@ -93,7 +93,7 @@ class TrainingManagerBase():
             self.data_config.vocab_size = None
         
         # output directory, and generate a training name
-        self.training_name = self.get_training_name()
+        self.training_name, self.group_info = self.get_training_name()
         # set up output directory
         self.dir_handler.set_output_dir(self.training_name)
         self.config.override({'output_dir': self.dir_handler.output_dir}, verbose=verbose)
@@ -234,11 +234,19 @@ class TrainingManagerBase():
         if use_wandb:
             wandb_config = self.train_config.wandb_config
                     # Reinitialize Wandb (this creates a new run each time)
-            wandb.init(reinit=True,  # Reinitialize the run for each call
-                    project=wandb_config.wandb_project,
-                    entity=wandb_config.wandb_entity,
-                    name=self.dir_handler.training_name
-                    )
+            if self.group_info == None:
+                wandb.init(reinit=True,  # Reinitialize the run for each call
+                        project=wandb_config.wandb_project,
+                        entity=wandb_config.wandb_entity,
+                        name=self.dir_handler.training_name
+                        )
+            else:
+                wandb.init(reinit=True,  # Reinitialize the run for each call
+                        project=wandb_config.wandb_project,
+                        entity=wandb_config.wandb_entity,
+                        group=self.group_info[0], 
+                        name = self.group_info[1]
+                        )
 
             wandb_logger = WandbLogger(
                     name=self.dir_handler.training_name,
@@ -404,7 +412,8 @@ class TrainingManagerBase():
         """
         training_name = time.strftime("%m%d-%H%M%S")
         print(f"Current training run: {training_name}")
-        return training_name
+        group_info = None
+        return training_name, group_info
 
     def config_datamodule(self):
         """
