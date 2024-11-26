@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 
-from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save
+from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD
 import os, copy, operator
 import pandas as pd
 import math, itertools
@@ -295,41 +295,21 @@ class PipelineBase(lightning.LightningModule):
     ## --------- default methods --------- ##
     def configure_optimizers(self):
         # Configure the optimizer.
-        if self.train_config.optimizer == "SGD":
-            config = self.train_config.SGD_optimizer_config
-            optimizer = torch.optim.SGD(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                momentum=config.momentum,
-                weight_decay=self.train_config.weight_decay,
-                nesterov=config.nesterov
-            )
-        elif self.train_config.optimizer == "Adam":
-            config = self.train_config.Adam_optimizer_config
-            optimizer = torch.optim.Adam(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                betas=config.betas, 
-                eps=config.eps,
-                weight_decay=config.weight_decay
-            )
-        elif self.train_config.optimizer == "AdamW":
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                weight_decay=self.train_config.weight_decay
-            )
-        elif self.train_config.optimizer == "RMSprop":
-            optimizer = torch.optim.RMSprop(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                weight_decay=self.train_config.weight_decay
-            )
-        elif self.train_config.optimizer == 'Shampoo':
-            
+        optimizer_dict = {
+            'SGD': torch.optim.SGD,
+            'Adam': torch.optim.Adam,
+            'AdamW': torch.optim.AdamW,
+            'RMSprop': torch.optim.RMSprop,
+            'Shampoo': Shampoo,
+            'signSGD': signSGD,
+        }
+        optimizer_name = self.train_config.optimizer
+        if optimizer_name not in optimizer_dict.keys():
+            raise ValueError(f"Optimizer {optimizer_name} is not implemented!")
         else:
-            raise NotImplementedError(
-                f"Optimizer {self.train_config.optimizer} is not implemented!"
+            optimizer = optimizer_dict[optimizer_name](
+                self.parameters(),
+                **self.train_config[f'{optimizer_name}_optimizer_config']
             )
             
         # Configure the learning rate scheduler.
