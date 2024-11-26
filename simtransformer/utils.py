@@ -280,6 +280,7 @@ def token_accuracy(y_hat, y):
     
     return accuracy
 
+import copy
 def check_cosine_similarity(embedding, 
                             target_embedding=None, 
                             verbose=False, 
@@ -336,16 +337,18 @@ def check_cosine_similarity(embedding,
         if isinstance(embedding, torch.Tensor):
             embedding_np = embedding.cpu().detach().numpy()
         else:
-            embedding_np = embedding
+            embedding_np = copy.deepcopy(embedding)
+            embedding = torch.tensor(embedding, dtype=torch.float32)
         if isinstance(target_embedding, torch.Tensor):
             target_embedding_np = target_embedding.cpu().detach().numpy()
         elif target_embedding is None:
             raise ValueError("target_embedding cannot be None when diag_only is True.")
         else:
-            target_embedding_np = target_embedding
-        inner_product = np.sum(embedding_np * target_embedding_np, axis=-1)
-        norm_1 = np.linalg.norm(embedding_np, axis=-1)
-        norm_2 = np.linalg.norm(target_embedding_np, axis=-1)
+            target_embedding_np = copy.deepcopy(target_embedding)
+            target_embedding = torch.tensor(target_embedding, dtype=torch.float32)
+        inner_product = torch.sum(embedding * target_embedding, dim=-1).cpu().detach().numpy()
+        norm_1 = torch.norm(embedding, dim=-1).cpu().detach().numpy()
+        norm_2 = torch.norm(target_embedding, dim=-1).cpu().detach().numpy()
         cos_sim = inner_product / (norm_1 * norm_2)
         if verbose:
             # use histogram to show the distribution of cosine similarity
@@ -366,7 +369,7 @@ def calculate_l2_similarity(input,
     l2_dist = torch.norm(input - target, dim=-1)
     norm_1 = torch.norm(input, dim=-1)
     norm_2 = torch.norm(target, dim=-1)
-    l2_dist_similarity = 1 - l2_dist / torch.sqrt(norm_1 * norm_2)
+    l2_dist_similarity = l2_dist / torch.sqrt(norm_1 * norm_2)
     if verbose:
         # histogram of the l2_dist_similarity
         plt.figure(figsize=figsize)
@@ -420,3 +423,176 @@ def extract_diagonals(tensor, row_idx, diag_idx, dim1=-2, dim2=-1):
 
     return result
 
+
+def _matrix_power(matrix, power):
+    """Compute the matrix to the given power using SVD."""
+    # Use CPU for SVD to speed up
+    device = matrix.device
+    matrix = matrix.cpu()
+    u, s, v = torch.svd(matrix)
+    return (u @ s.pow_(power).diag() @ v.t()).to(device)
+
+import torch.optim as optim
+class Shampoo(optim.Optimizer):
+    r"""Implements the Shampoo optimizer algorithm.
+
+    Shampoo: Preconditioned Stochastic Tensor Optimization.
+
+    Args:
+        params (iterable): Iterable of parameters to optimize or dicts defining parameter groups.
+        lr (float): Learning rate (default: 1e-1).
+        momentum (float): Momentum factor (default: 0).
+        weight_decay (float): Weight decay factor (default: 0).
+        epsilon (float): Epsilon for numerical stability (default: 1e-4).
+        update_freq (int): Update frequency for computing the matrix inverse (default: 1).
+    """
+
+    def __init__(
+        self,
+        params,
+        lr=1e-1,
+        momentum=0,
+        weight_decay=0,
+        epsilon=1e-4,
+        update_freq=1,
+    ):
+        if lr <= 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if momentum < 0.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        if weight_decay < 0.0:
+            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if epsilon <= 0.0:
+            raise ValueError(f"Invalid epsilon value: {epsilon}")
+        if update_freq < 1:
+            raise ValueError(f"Invalid update_freq value: {update_freq}")
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            weight_decay=weight_decay,
+            epsilon=epsilon,
+            update_freq=update_freq,
+        )
+        super(Shampoo, self).__init__(params, defaults)
+
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Args:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+
+        Returns:
+            Optional[float]: The loss if a closure is provided, otherwise None.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+
+                grad = p.grad.data
+                order = grad.ndimension()
+                original_size = grad.size()
+                state = self.state[p]
+                momentum = group["momentum"]
+                weight_decay = group["weight_decay"]
+
+                # Initialize state
+                if len(state) == 0:
+                    state["step"] = 0
+                    if momentum > 0:
+                        state["momentum_buffer"] = grad.clone()
+                    for dim_id, dim in enumerate(grad.size()):
+                        state[f"precond_{dim_id}"] = group["epsilon"] * torch.eye(dim, out=grad.new(dim, dim))
+                        state[f"inv_precond_{dim_id}"] = grad.new(dim, dim).zero_()
+
+                # Apply momentum
+                if momentum > 0:
+                    grad.mul_(1 - momentum).add_(state["momentum_buffer"], alpha=momentum)
+
+                # Apply weight decay
+                if weight_decay > 0:
+                    grad.add_(p.data, alpha=weight_decay)
+
+                # Preconditioning update
+                for dim_id, dim in enumerate(grad.size()):
+                    precond = state[f"precond_{dim_id}"]
+                    inv_precond = state[f"inv_precond_{dim_id}"]
+
+                    # Reshape gradient for matrix multiplication
+                    grad = grad.transpose_(0, dim_id).contiguous()
+                    transposed_size = grad.size()
+                    grad = grad.view(dim, -1)
+
+                    grad_t = grad.t()
+                    precond.add_(grad @ grad_t)
+                    if state["step"] % group["update_freq"] == 0:
+                        inv_precond.copy_(_matrix_power(precond, -1 / order))
+
+                    if dim_id == order - 1:
+                        # Final preconditioned gradient
+                        grad = grad_t @ inv_precond
+                        grad = grad.view(original_size)
+                    else:
+                        grad = inv_precond @ grad
+                        grad = grad.view(transposed_size)
+
+                # Update step
+                state["step"] += 1
+                state["momentum_buffer"] = grad
+                p.data.add_(grad, alpha=-group["lr"])
+
+        return loss
+    
+    
+class signSGD(optim.Optimizer):
+
+    def __init__(self, params, lr=0.01, rand_zero=True):
+        defaults = dict(lr=lr)
+        self.rand_zero = rand_zero
+        super(signSGD, self).__init__(params, defaults)
+
+    def step(self, closure=None):
+        """Performs a single optimization step.
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                # take sign of gradient
+                grad = torch.sign(p.grad)
+
+                # randomise zero gradients to ±1
+                if self.rand_zero:
+                    grad[grad==0] = torch.randint_like(grad[grad==0], low=0, high=2)*2 - 1
+                    assert not (grad==0).any()
+                
+                # make update
+                p.data -= group['lr'] * grad
+
+        return loss
+    
+from lightning.pytorch.callbacks import Callback
+    
+class EpochCheckpointCallback(Callback):
+    def __init__(self, ckpt_epochs, dirpath):
+        super().__init__()
+        self.ckpt_epochs = ckpt_epochs
+        self.dirpath = dirpath
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if trainer.current_epoch in self.ckpt_epochs:
+            trainer.save_checkpoint(os.path.join(self.dirpath, f'epoch={trainer.current_epoch:02d}.ckpt'))

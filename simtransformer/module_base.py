@@ -11,7 +11,7 @@ import os, copy, operator
 import pandas as pd
 import math, itertools
 
-class DirectoryHandler:
+class DirectoryHandlerBase:
     def __init__(self, 
                  load_data_abs_dir: str,
                  data_file_name: str,
@@ -104,15 +104,19 @@ class Vocab:
     def __init__(self, input: Union[list, dict]):
         if isinstance(input, list):
             self.vocab = {}
-            # get the unique tokens in input
-            tokens = set(input)
-            # add special tokens
-            tokens.update(["<eos>", "<pad>"])
+            if "<bos>" not in input:
+                input.append("<bos>")
+            if "<eos>" not in input:
+                input.append("<eos>")
+            if "<pad>" not in input:
+                input.append("<pad>")
             # create a vocab from the tokens
-            self.vocab = {token: idx for idx, token in enumerate(tokens)}
+            self.vocab = {token: idx for idx, token in enumerate(input)}
         elif isinstance(input, dict):
             self.vocab = input
             # add special tokens if not already present
+            if "<bos>" not in self.vocab:
+                self.vocab["<bos>"] = len(self.vocab)
             if "<eos>" not in self.vocab:
                 self.vocab["<eos>"] = len(self.vocab)
             if "<pad>" not in self.vocab:
@@ -197,24 +201,28 @@ class ConfigBase(EasyDict):
         """
         pass
 
-    def override(self, kwargs: dict):
+    def override(self, kwargs: dict, verbose: bool = False):
         """
         Override the configurations with the given kwargs.
+        There are two ways to override the configurations:
+        
+        - If the key in kwargs has the prefix of the configuration, e.g., `model_config.dim`, the corresponding key in the corresponding configuration will be updated.
+        - If the key in kwargs does not have the prefix of the configuration, the key will be added to all the sub-configurations by running the `setattr_with_string` function. An example of key of this kind is `cosine_scheduler_config.warmup_steps`.
         """
         # first check if the kwargs start with self.keys(), if so update the corresponding key
         for key, var in kwargs.items():
+            count = 0
             if key.startswith(tuple(self.keys())):
-                self.update({key: var})
+                self.update({key: var}) # The key already has the prefix, e.g., 'model_config.dim'
             else:
                 # if not, check if the key is in the nested dict, if two nested dicts have the same key, all the keys will be updated while raise a warning message but do not stop the process
                 for k, v in self.items():
-                    count = 0
                     if isinstance(v, EasyDict):
-                        if key in v.keys():
-                            v.update({key: var})
-                            count += 1
-                    if count > 1:
-                        print(f"Warning: {key} is in multiple configs. By default, all the keys will be updated.")
+                        # if key in v.keys():
+                        v.setattr_with_string(key, var)
+                        count += 1
+                if count > 1 and verbose:
+                    print(f"Warning: {key} will be added to multiple configs. By default, all the keys will be updated.")
         self.prepare()
 
 class PipelineBase(lightning.LightningModule):
@@ -344,7 +352,10 @@ class PipelineBase(lightning.LightningModule):
         else:
             # use no scheduler
             scheduler = None
-        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        if scheduler is not None:
+            return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        else:
+            return optimizer
     
     def lr_scheduler_step(
             self,
@@ -563,7 +574,7 @@ class DataModuleBase(lightning.LightningDataModule):
     It provides methods for setting up the data, creating data loaders, and transforming batches.
     Attributes:
         data_config (EasyDict): Data configuration.
-        dir_handler (DirectoryHandler): Directory handler for loading and saving data.
+        dir_handler (DirectoryHandlerBase): Directory handler for loading and saving data.
         vocab (Optional[Vocab]): Vocabulary for the data.
         data_train (Any): Training data.
         data_val (Any): Validation data.
@@ -595,11 +606,11 @@ class DataModuleBase(lightning.LightningDataModule):
         transfer_batch_to_device(batch, device, dataloader_idx):
             Transfer the batch to the device.
         """
-    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandler):
+    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandlerBase):
         """
         Args:
             data_config (EasyDict): data configuration
-            dir_handler (DirectoryHandler): directory handler
+            dir_handler (DirectoryHandlerBase): directory handler
         """
         super().__init__()
         self.data_config = data_config

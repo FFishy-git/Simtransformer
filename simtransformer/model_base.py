@@ -688,9 +688,11 @@ class MLP(nnModule):
         self.proj = nn.Linear(intermediate_size, hidden_size, bias=True)
         self.dropout = nn.Dropout(resid_pdrop)
 
-    def forward(self, x):
+    def forward(self, x, neuron_mask=None):
         pre_activation = self.fc(x)
         post_activation = self.act(pre_activation)
+        if neuron_mask is not None:
+            post_activation = post_activation * neuron_mask
         output = self.proj(post_activation)
         output = self.dropout(output)
         intermediate = EasyDict({
@@ -1151,3 +1153,24 @@ class SparseAutoEncoder(nnModule):
         x = self.decoder(post_act)
         
         return x, post_act
+
+
+# add a intermediate model where the gradient backpropagation is scaled by a factor
+class GradRescaler(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, scale):
+        ctx.save_for_backward(torch.tensor([scale]))
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        scale = ctx.saved_tensors[0]
+        return grad_output * scale.item(), None
+    
+class LayerWithGradRescale(nn.Module):
+    def __init__(self):
+        super(LayerWithGradRescale, self).__init__()
+        self.fn = GradRescaler.apply
+    
+    def forward(self, x, scale):
+        return self.fn(x, scale)
