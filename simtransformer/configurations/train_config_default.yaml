@@ -7,14 +7,25 @@ cosine_scheduler_config:
 StepLR_scheduler_config:
   gamma: 0.1
   step_size: 1000
+
+optimizer: AdamW
+Adam_optimizer_config:
+  betas: [0.9, 0.999]
+  eps: 1.0e-08
+  weight_decay: 0.0 # there is some issue with the original weight decay. Should use AdamW instead
+SGD_optimizer_config:
+  momentum: 0.9
+  nesterov: true
+
+weight_decay: 0.01
 learning_rate: 0.001
 max_epochs: 100
-optimizer: AdamW
+
 use_wandb: true
 wandb_config:
   wandb_project: composition_v1
   wandb_entity: scgpt-siyu
-weight_decay: 0.01
+
 seed: 42
 num_workers: 4
 use_loss_n: true

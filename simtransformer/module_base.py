@@ -288,16 +288,22 @@ class PipelineBase(lightning.LightningModule):
     def configure_optimizers(self):
         # Configure the optimizer.
         if self.train_config.optimizer == "SGD":
+            config = self.train_config.SGD_optimizer_config
             optimizer = torch.optim.SGD(
                 self.parameters(),
                 lr=self.train_config.learning_rate,
-                momentum=self.train_config.momentum,
+                momentum=config.momentum,
                 weight_decay=self.train_config.weight_decay,
+                nesterov=config.nesterov
             )
         elif self.train_config.optimizer == "Adam":
+            config = self.train_config.Adam_optimizer_config
             optimizer = torch.optim.Adam(
                 self.parameters(),
                 lr=self.train_config.learning_rate,
+                betas=config.betas, 
+                eps=config.eps,
+                weight_decay=config.weight_decay
             )
         elif self.train_config.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
@@ -305,6 +311,14 @@ class PipelineBase(lightning.LightningModule):
                 lr=self.train_config.learning_rate,
                 weight_decay=self.train_config.weight_decay
             )
+        elif self.train_config.optimizer == "RMSprop":
+            optimizer = torch.optim.RMSprop(
+                self.parameters(),
+                lr=self.train_config.learning_rate,
+                weight_decay=self.train_config.weight_decay
+            )
+        elif self.train_config.optimizer == 'Shampoo':
+            
         else:
             raise NotImplementedError(
                 f"Optimizer {self.train_config.optimizer} is not implemented!"
