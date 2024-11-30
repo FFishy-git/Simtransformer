@@ -136,7 +136,7 @@ class TrainingManagerBase():
     def load_training_manager(
         cls,
         last_run_dir: str,
-        ckpt_file_path: Optional[str],
+        ckpt_file_path: Optional[str] = None,
         prefix_for_training_name: Optional[str] = None,
         new_training_name: Optional[str] = None,
         abstract_config: ConfigBase = ConfigBase,
