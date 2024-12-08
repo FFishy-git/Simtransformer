@@ -173,6 +173,7 @@ class TrainingManagerBase():
 
         path_to_dirhandler = os.path.join(last_run_dir, 'configurations', 'dirhandler.yaml')
         dir_handler_old = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
+        dir_handler_old.load_config_abs_dir = os.path.basename(path_to_dirhandler)
         # dir_handler.data_file_name = dir_handler_old.data_file_name
         # dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
 
