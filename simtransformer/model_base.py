@@ -679,12 +679,24 @@ class MultiHeadAttentionDeBERTa(nnModule):
         
         return params_dict
 
+class SigmoiLU(nnModule):
+    def __init__(self, beta=1.0):
+        super(SigmoiLU, self).__init__()
+        self.beta = beta
+        
+    def forward(self, x):
+        return torch.log(1.0 + torch.exp(self.beta * x)) / self.beta
 
 class MLP(nnModule):
-    def __init__(self, hidden_size, intermediate_size, resid_pdrop):
+    def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
         super(MLP, self).__init__()
         self.fc = nn.Linear(hidden_size, intermediate_size, bias=True)
-        self.act = nn.ReLU()
+        activation = kwargs.get('activation', 'relu')
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'sigmoidlu':
+            sigmoidlu_beta = kwargs.get('sigmoidlu_beta', 1.0)
+            self.act = SigmoiLU(beta=sigmoidlu_beta)
         self.proj = nn.Linear(intermediate_size, hidden_size, bias=True)
         self.dropout = nn.Dropout(resid_pdrop)
 
