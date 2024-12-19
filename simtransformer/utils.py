@@ -234,9 +234,10 @@ def clever_save(obj, file_path):
     elif file_path.endswith(".pth"):
         torch.save(obj, file_path)
     elif file_path.endswith(".csv"):
-        with open(file_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerows(obj)
+        # with open(file_path, "w", newline="") as f:
+        #     writer = csv.writer(f)
+        #     writer.writerows(obj)
+        obj.to_csv(file_path, index=False)
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")
     
