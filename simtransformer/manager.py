@@ -337,6 +337,10 @@ class TrainingManagerBase():
     
     @final
     def fit(self):
+        self.model_config['mode'] = 'train'
+        self.data_config['mode'] = 'train'
+        self.train_config['mode'] = 'train'
+        
         # trainer initialization
         checkpoint_callback = ModelCheckpoint(
             dirpath=self.dir_handler.output_dir,
@@ -358,6 +362,9 @@ class TrainingManagerBase():
     
     
     def debug_fit(self):
+        self.model_config['mode'] = 'debug'
+        self.data_config['mode'] = 'debug'
+        self.train_config['mode'] = 'debug'
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
             logger=self.wandb_logger,
@@ -369,24 +376,33 @@ class TrainingManagerBase():
     
     @final
     def probe_fit(self):
-        # trainer initialization
-        # checkpoint_callback = ModelCheckpoint(
-        #     dirpath=self.dir_handler.output_dir,
-        #     filename='{epoch}-{probe_val_loss:.4f}', 
-        #     monitor='probe_val_loss',
-        #     mode='min',
-        # )
+        self.model_config['mode'] = 'probe'
+        self.data_config['mode'] = 'probe'
+        self.train_config['mode'] = 'probe'
+        self.setup_probe_pipeline()
+        
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=self.dir_handler.output_dir,
+            filename='{epoch}-{probe_val_loss:.4f}', 
+            monitor='probe_val_loss',
+            mode='min',
+            save_last=True,
+        )
         lr_monitor = LearningRateMonitor(logging_interval='step')
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
             logger=self.wandb_logger,
-            callbacks=[lr_monitor],
+            callbacks=[lr_monitor, checkpoint_callback],
             default_root_dir=self.dir_handler.output_dir,
         )
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
 
     @final
     def probe_test(self, pos_label):
+        self.data_config['mode'] = 'probe_test'
+        self.model_config['mode'] = 'probe_test'
+        self.train_config['mode'] = 'probe_test'
+        
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
             logger=self.wandb_logger,
@@ -398,6 +414,10 @@ class TrainingManagerBase():
     
     @final
     def test(self):
+        self.model_config['mode'] = 'test'
+        self.data_config['mode'] = 'test'
+        self.train_config['mode'] = 'test'
+        
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
             logger=self.wandb_logger,
