@@ -913,7 +913,7 @@ class ProbePipelineBase(PipelineBase):
             loss_p, loss_n, output = self.pipeline._Step(
                 batch, 
                 batch_idx, 
-                step_type=None, # do not log the loss because the pipeline is not attached to a trainer
+                step_type='predict', # do not log the loss because the pipeline is not attached to a trainer
                 )
             
         _, probe_batch, _ = self._unpack_batch(batch)
