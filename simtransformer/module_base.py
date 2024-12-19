@@ -889,6 +889,11 @@ class ProbePipelineBase(PipelineBase):
         """
         Reshape the probing_output and probe_label to the same shape for calculating the loss.
         
+        probing_output: (batch_size, [num_probe_hook, msk_seq_len], *out_channel_size_ls, probe_output_size) -> (batch_size, probe_output_size, num_probe_hook, msk_seq_len, *out_channel_size_ls)
+        
+        probe_label: (batch_size, *out_channel_size_ls) -> (batch_size, [num_probe_hook, msk_seq_len], *in_channel_size_ls, *out_channel_size_ls)
+        
+        [num_probe_hook, msk_seq_len] = *in_channel_size_ls
         """
         
         # move the last dimension to the dimension 1

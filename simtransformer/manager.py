@@ -393,7 +393,7 @@ class TrainingManagerBase():
         trainer = Trainer(
             max_epochs=self.probe_config.max_epochs,
             logger=self.wandb_logger,
-            callbacks=[lr_monitor, checkpoint_callback],
+            callbacks=[lr_monitor, checkpoint_callback] if self.wandb_logger is not False else None,
             default_root_dir=self.dir_handler.output_dir,
         )
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
