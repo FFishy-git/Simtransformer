@@ -23,5 +23,4 @@ use_bias: true
 use_layer_norm: true
 use_pos_layer_norm: true
 use_readout_proj: true
-vocab_size: 128
 loss_n_scale: 1.0
