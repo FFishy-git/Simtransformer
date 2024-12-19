@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
     combined = list(zip(data, indices))
@@ -206,10 +207,12 @@ def clever_load(file_path):
     elif file_path.endswith(".pth"):
         return torch.load(file_path)
     elif file_path.endswith(".csv"):
-        with open(file_path, "r", newline="") as f:
-            reader = csv.reader(f)
-            obj =[row for row in reader]
-            return obj
+        # with open(file_path, "r", newline="") as f:
+        #     reader = csv.reader(f)
+        #     obj =[row for row in reader]
+        #     return obj
+        df = pd.read_csv(file_path)
+        return df
                 
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")

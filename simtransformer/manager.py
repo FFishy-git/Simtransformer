@@ -355,7 +355,11 @@ class TrainingManagerBase():
         precision = getattr(self.train_config, 'matmul_precision', 'highest')
         torch.set_float32_matmul_precision(precision)
         trainer.fit(self.pipeline, datamodule=self.datamodule)
-        
+    
+    
+    def debug_fit(self):
+        self.fit()
+    
     @final
     def probe_fit(self):
         # trainer initialization
