@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 
 from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD
-import os, copy, operator
+import os, copy, operator, time
 import pandas as pd
 import math, itertools
 
@@ -20,7 +20,8 @@ class DirectoryHandlerBase:
                  load_ckpt_abs_path: Optional[str] = None,
                  output_abs_dir: Optional[str] = None,
                  create_run_under_abs_dir: Optional[str] = None, # will create a new output_dir if output_abs_dir is None
-                 training_name: Optional[str] = None
+                 training_name: Optional[str] = None, 
+                 postfix: Optional[str] = None,
                  ):
         """
         Args:
@@ -39,8 +40,8 @@ class DirectoryHandlerBase:
         self.load_ckpt_abs_path = load_ckpt_abs_path
         self.output_abs_dir = output_abs_dir
         self.create_run_under_abs_dir = create_run_under_abs_dir
-        self.output_abs_dir = None
         self.training_name = training_name
+        self.postfix = None
     
     @classmethod
     def load_from_file(cls, path: str):
@@ -84,17 +85,24 @@ class DirectoryHandlerBase:
     def output_dirhandler_path(self):
         return os.path.join(self.output_config_dir, "dirhandler.yaml")
     
-    def set_output_dir(self, training_name_suggest: str):
+    @property
+    def name_with_postfix(self):
+        if self.postfix is None or self.training_name is None:
+            raise ValueError("postfix or training_name is not set yet. Please call TrainingManager to set the output directory.")
+        return self.training_name + '-' + self.postfix
+    
+    def set_output_dir(self, training_name_suggest: str, seed: int):
         if self.training_name is None:
-            if self.output_abs_dir is None:
-                # create a new output directory with the given training_name_suggest
-                self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", training_name_suggest)
-                self.training_name = training_name_suggest
-            else:
-                self.training_name = os.path.basename(self.output_abs_dir)
-                # use the given output_abs_dir
-        else:
-            self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", self.training_name)
+            self.training_name = training_name_suggest
+        
+        # if self.postfix is None:
+        current_time = time.strftime("%m%d-%H%M%S")
+        self.postfix = f'seed{seed}-{current_time}'
+        
+        if self.output_abs_dir is None:
+            # create a new output directory with the given training_name_suggest
+            self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", self.name_with_postfix)
+            
         if not os.path.exists(self.output_abs_dir):
             os.makedirs(self.output_abs_dir)
             print(f"Create output directory: {self.output_abs_dir}")

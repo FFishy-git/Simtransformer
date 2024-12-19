@@ -43,6 +43,7 @@ use_wandb: true
 wandb_config:
   wandb_project: composition_v1
   wandb_entity: scgpt-siyu
+  make_group: true
 
 seed: 42
 num_workers: 4

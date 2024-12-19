@@ -93,9 +93,9 @@ class TrainingManagerBase():
             self.data_config.vocab_size = None
         
         # output directory, and generate a training name
-        self.training_name, self.group_info = self.get_training_name()
+        self.training_name = self.get_training_name()
         # set up output directory
-        self.dir_handler.set_output_dir(self.training_name)
+        self.dir_handler.set_output_dir(self.training_name, self.train_config.seed)
         self.config.override({'output_dir': self.dir_handler.output_dir}, verbose=verbose)
         
         self.data_config.num_workers = self.train_config.num_workers
@@ -138,12 +138,17 @@ class TrainingManagerBase():
         last_run_dir: str,
         ckpt_file_path: Optional[str] = None,
         prefix_for_training_name: Optional[str] = None,
-        new_training_name: Optional[str] = None,
         abstract_config: ConfigBase = ConfigBase,
         abstract_pipeline: PipelineBase = PipelineBase,
         abstract_datamodule: DataModuleBase = DataModuleBase,
         **kwargs
     ):
+        """
+        kwargs can contain the configuration parameters that need to be overridden for both configurations and dir_handler.
+        
+        For dir_handler, the following keys are supported:
+        - 'training_name'
+        """
 
         last_run_name = os.path.basename(last_run_dir)
         # suppose last_run_dir has the structure 'task_dir/run/last_run_name', get the task_dir
@@ -153,37 +158,27 @@ class TrainingManagerBase():
             ckpt_files = [f for f in os.listdir(last_run_dir) if f.endswith('.ckpt')]
             ckpt_files.sort()
             ckpt_file_path = os.path.join(last_run_dir, ckpt_files[-1])
-        if prefix_for_training_name is None:
-            prefix_for_training_name = ''
-        training_name = prefix_for_training_name + last_run_name
-        
-        if new_training_name is not None:
-            training_name = new_training_name
-        
-        # dir_handler = DirectoryHandlerBase(
-        #     load_data_abs_dir=None,
-        #     data_file_name=None,
-        #     vocab_file_name=None,
-        #     load_config_abs_dir=os.path.join(last_run_dir, 'configurations'),
-        #     load_ckpt_abs_path=ckpt_file_path,
-        #     output_abs_dir=None,
-        #     create_run_under_abs_dir=task_dir,
-        #     training_name=training_name,
-        # )
 
         path_to_dirhandler = os.path.join(last_run_dir, 'configurations', 'dirhandler.yaml')
         dir_handler_old = DirectoryHandlerBase.load_from_file(path_to_dirhandler)
         dir_handler_old.load_config_abs_dir = os.path.dirname(path_to_dirhandler)
         dir_handler_old.load_ckpt_abs_path = ckpt_file_path
-        # dir_handler.data_file_name = dir_handler_old.data_file_name
-        # dir_handler.vocab_file_name = dir_handler_old.vocab_file_name
-
+        
+        if kwargs.get('keep_output_dir', False):
+            pass 
+        else:
+            dir_handler_old.output_dir = None
+            
         # override the dir_handler with the kwargs
         for key in kwargs.keys():
             if key in dir_handler_old.__dict__.keys():
                 setattr(dir_handler_old, key, kwargs[key])
         
-        dir_handler_old.output_abs_dir = os.path.join(task_dir, 'run', training_name)
+        if prefix_for_training_name is None:
+            prefix_for_training_name = ''
+        training_name = prefix_for_training_name + dir_handler_old.training_name
+            
+        dir_handler_old.training_name = training_name
 
         return cls(
             dir_handler=dir_handler_old,
@@ -237,22 +232,22 @@ class TrainingManagerBase():
         if use_wandb:
             wandb_config = self.train_config.wandb_config
                     # Reinitialize Wandb (this creates a new run each time)
-            if self.group_info == None:
+            if wandb_config.make_group == False:
                 wandb.init(reinit=True,  # Reinitialize the run for each call
                         project=wandb_config.wandb_project,
                         entity=wandb_config.wandb_entity,
-                        name=self.dir_handler.training_name
+                        name=self.dir_handler.name_with_postfix
                         )
             else:
                 wandb.init(reinit=True,  # Reinitialize the run for each call
                         project=wandb_config.wandb_project,
                         entity=wandb_config.wandb_entity,
-                        group=self.group_info[0], 
-                        name = self.group_info[1]
+                        group=self.dir_handler.training_name,
+                        name = self.dir_handler.postfix,
                         )
 
             wandb_logger = WandbLogger(
-                    name=self.dir_handler.training_name,
+                    name=self.dir_handler.name_with_postfix,
                     project=wandb_config.wandb_project,
                     save_dir=self.dir_handler.output_dir,
                     entity=wandb_config.wandb_entity,
@@ -448,8 +443,7 @@ class TrainingManagerBase():
         """
         training_name = time.strftime("%m%d-%H%M%S")
         print(f"Current training run: {training_name}")
-        group_info = None
-        return training_name, group_info
+        return training_name
 
     def config_datamodule(self):
         """
