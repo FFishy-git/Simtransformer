@@ -750,6 +750,7 @@ class ProbePipelineBase(PipelineBase):
                  pipeline: PipelineBase, # suppose you have a pipeline that inherits from PipelineBase, then pass it here
                  added_probe_target_key: Optional[str] = None, 
                  added_vis_target_key: Optional[str] = None,
+                 pos_label: list = None,
                  ) -> None:
         """Note that pipeline here is not attached to any trainer. So all the hooks are not activated, including the logger.
 
@@ -808,7 +809,7 @@ class ProbePipelineBase(PipelineBase):
         self.vis_dict = vis_dict # for later releasing the memory
         
         self.channel_loss_logger = []
-        
+        self.pos_label = pos_label
         print("Number of probe hooks added:", self.num_probe_hook)
 
     @property
@@ -985,8 +986,10 @@ class ProbePipelineBase(PipelineBase):
     
     def process_and_reset_channel_loss(self, pos_label: Optional[list] = None):
         """
-        Process the channel loss for visualization
+        Process the channel loss for visualization, by default, use self.pos_label
         """
+        if pos_label is None:
+            pos_label = self.pos_label
         if len(self.channel_loss_logger) == 0:
             return None
         else:
