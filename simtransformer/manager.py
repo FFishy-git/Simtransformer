@@ -394,7 +394,9 @@ class TrainingManagerBase():
         trainer.fit(self.probe_pipeline, datamodule=self.datamodule)
 
     @final
-    def probe_test(self, pos_label):
+    def probe_test(self, 
+                   pos_label: Optional[list] = None,
+                   ):
         self.data_config['mode'] = 'probe_test'
         self.model_config['mode'] = 'probe_test'
         self.train_config['mode'] = 'probe_test'

@@ -106,7 +106,8 @@ class DirectoryHandlerBase:
         if not os.path.exists(self.output_abs_dir):
             os.makedirs(self.output_abs_dir)
             print(f"Create output directory: {self.output_abs_dir}")
-            
+        else:
+            print(f"Output directory already exists: {self.output_abs_dir}, using the existing directory.")
 
 class Vocab:
     def __init__(self, input: Union[list, dict]):
@@ -1032,4 +1033,4 @@ class ProbePipelineBase(PipelineBase):
             
             self.channel_loss_logger = []
             
-            return channel_loss_df
+            return channel_loss_df_ls
