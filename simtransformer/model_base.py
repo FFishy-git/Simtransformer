@@ -1166,6 +1166,65 @@ class SparseAutoEncoder(nnModule):
         return x, post_act
 
 
+class Activation(nnModule):
+    def __init__(self, activation: str):
+        super(Activation, self).__init__()
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'sigmoidlu':
+            self.act = SigmoiLU()
+        else:
+            raise ValueError(f"Activation {activation} is not supported!")
+    
+    def forward(self, x: torch.Tensor):
+        return self.act(x)
+    
+        
+class SAEWithChannel(nnModule):
+    def __init__(self, 
+                 input_size, 
+                 hidden_size, 
+                 channel_size_ls: Union[list, tuple, int],
+                 activation: str='relu',
+                 ):
+        super(SAEWithChannel, self).__init__()
+        self.hidden_size = int(hidden_size)
+        
+        self.W_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
+        self.b_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size))
+        self.b_dec = nn.parameter(torch.randn(*channel_size_ls, input_size))
+        self.act = Activation(activation)
+        
+        # initialize the encoder weight
+        nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        # initialize the encoder bias
+        nn.init.zeros_(self.encoder.bias.data)
+        nn.init.zeros_(self.decoder.bias.data)
+        
+    def forward(self, 
+                x: torch.Tensor, 
+                l1_penalty: float=1e-5,):
+        """
+        Args:
+        - x: tensor of shape (batch_size, input_size)
+        """
+        x_centered = x - self.b_enc
+        
+        pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
+        
+        reconstruct_loss = nn.functional.mse_loss(x_reconstructed, x, reduction='mean')
+        
+        l1_loss = self.l1_penalty * post_act * torch.norm(self.W_enc, p=2, dim=-1).unsqueeze(0)
+        
+        return reconstruct_loss, l1_loss, EasyDict({
+            'x_reconstructed': x_reconstructed, 
+            'pre_act': pre_act,
+        })
+
 # add a intermediate model where the gradient backpropagation is scaled by a factor
 class GradRescaler(torch.autograd.Function):
     @staticmethod

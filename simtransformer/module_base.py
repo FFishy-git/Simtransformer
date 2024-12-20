@@ -288,7 +288,7 @@ class PipelineBase(lightning.LightningModule):
         self.training_model = training_model
         self.loss_p_model = loss_p_model
         self.loss_n_model = loss_n_model
-        self.loss_n_scale = self.train_config.loss_n_scale if self.train_config.use_loss_n else 0.0
+        self.loss_n_scale = getattr(self.train_config, "loss_n_scale", 0.0)
         self.last_epoch = -1 # to track is there is a change in self.current_epoch for calling on_my_epoch_end
     
     # initialize from an existing PipelineBase object
@@ -587,6 +587,27 @@ class PipelineBase(lightning.LightningModule):
                 storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
         return hook_fn
     
+    def add_forward_hooks(self, hook_target_key, model): 
+        # ---- initialize the dictionary for hooking positions ---- #
+        hook_dict = EasyDict({})
+        for added_key in hook_target_key:
+            hook_dict.setattr_with_string(added_key, None)
+        storage_dict = EasyDict(copy.deepcopy(hook_dict))
+        
+        ## --------- autohook for sae model --------- ##
+        num_hook = 0
+        for key, value in hook_dict.flatten().items():
+            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(model)
+            # print('key:', key)
+            hook_dict.setattr_with_string(
+                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, storage_dict))
+            )
+            num_hook += 1
+            
+        return hook_dict, storage_dict, num_hook
+    
     
 class DataModuleBase(lightning.LightningDataModule):
     """
@@ -813,40 +834,44 @@ class ProbePipelineBase(PipelineBase):
         self.pipeline = pipeline
         
         # ---- initialize the dictionary for hooking positions ---- #
-        probe_dict = EasyDict({})
-        for added_key in self.added_probe_target_key:
-            probe_dict.setattr_with_string(added_key, None)
-        self.probe_storage_dict = EasyDict(copy.deepcopy(probe_dict))
         
-        ## ---- initialize the dictionary for hooking attention ---- ##
-        vis_dict = EasyDict({})
-        for added_key in self.added_vis_target_key:
-            vis_dict.setattr_with_string(added_key, None)
-        self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
+        self.probe_dict, self.probe_storage_dict, self.num_probe_hook = self.add_forward_hooks(self.added_probe_target_key, self.pipeline.training_model)
+        
+        self.vis_dict, self.vis_storage_dict, self.num_vis_hook = self.add_forward_hooks(self.added_vis_target_key, self.pipeline.training_model)
+        # probe_dict = EasyDict({})
+        # for added_key in self.added_probe_target_key:
+        #     probe_dict.setattr_with_string(added_key, None)
+        # self.probe_storage_dict = EasyDict(copy.deepcopy(probe_dict))
+        
+        # ## ---- initialize the dictionary for hooking attention ---- ##
+        # vis_dict = EasyDict({})
+        # for added_key in self.added_vis_target_key:
+        #     vis_dict.setattr_with_string(added_key, None)
+        # self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
 
-        ## --------- autohook for probe model --------- ##
-        self.num_probe_hook = 0
-        for key, value in probe_dict.flatten().items():
-            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
-            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
-            # print('key:', key)
-            probe_dict.setattr_with_string(
-                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
-            )
-            self.num_probe_hook += 1
+        # ## --------- autohook for probe model --------- ##
+        # self.num_probe_hook = 0
+        # for key, value in probe_dict.flatten().items():
+        #     # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+        #     model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+        #     model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
+        #     # print('key:', key)
+        #     probe_dict.setattr_with_string(
+        #         key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
+        #     )
+        #     self.num_probe_hook += 1
             
-        ## --------- autohook for vis model --------- ##
-        for key, value in vis_dict.flatten().items():
-            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
-            # print('key:', key)
-            vis_dict.setattr_with_string(
-                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
-            )
+        # ## --------- autohook for vis model --------- ##
+        # for key, value in vis_dict.flatten().items():
+        #     model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+        #     model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
+        #     # print('key:', key)
+        #     vis_dict.setattr_with_string(
+        #         key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
+        #     )
         
-        self.probe_dict = probe_dict
-        self.vis_dict = vis_dict # for later releasing the memory
+        # self.probe_dict = probe_dict
+        # self.vis_dict = vis_dict # for later releasing the memory
         
         self.channel_loss_logger = []
         self.pos_label = pos_label
@@ -1042,37 +1067,53 @@ class SAEPipelineBase(PipelineBase):
     def __init__(self, 
                  sae_config: EasyDict, 
                  sae_layer: nn.Module,
-                 sae_loss_model: nn.Module,
                  pipeline: PipelineBase,
                  added_sae_target_key: Optional[str] = None,
     ):
         super(SAEPipelineBase, self).__init__(
             train_config=sae_config, 
             training_model=sae_layer, 
-            loss_p_model=sae_loss_model)
+            loss_p_model=None)
         self.added_sae_target_key = added_sae_target_key
-        self.sae_loss_model = sae_loss_model
         self.pipeline = pipeline
         
-        # ---- initialize the dictionary for hooking positions ---- #
-        sae_dict = EasyDict({})
-        for added_key in self.added_sae_target_key:
-            sae_dict.setattr_with_string(added_key, None)
-        self.sae_storage_dict = EasyDict(copy.deepcopy(sae_dict))
+        self.hook_dict, self.storage_dict, self.num_hook = self.add_forward_hooks(self.added_sae_target_key, self.pipeline.training_model)
         
-        ## --------- autohook for sae model --------- ##
-        self.num_sae_hook = 0
-        for key, value in sae_dict.flatten().items():
-            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
-            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
-            # print('key:', key)
-            sae_dict.setattr_with_string(
-                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.sae_storage_dict))
-            )
-            self.num_sae_hook += 1
-            
-        self.sae_dict = sae_dict
-        self.channel_loss_logger = []
         print("Number of sae hooks added:", self.num_sae_hook)
     
+    @property
+    def sae_layer(self):
+        return self.training_model
+    
+    def supply_hidden_state_tensor(self):
+        hidden_state = list(self.storage_dict.flatten().values())
+        hidden_state_tensor = torch.stack(hidden_state, dim = -1) # shape: (batch_size, seq_len, hidden_size, num_sae_hook)
+        hidden_state_tensor = hidden_state_tensor.reshape(-1, *hidden_state_tensor.shape[-2:]) # shape: (batch_size * seq_len, hidden_size, num_sae_hook)
+        return hidden_state_tensor.permute(0, 2, 1) # shape: (batch_size * seq_len, num_sae_hook, hidden_size)
+    
+    def _Step(self, batch, batch_idx, step_type: str):
+        ## --------------- forward pass --------------- ##
+        self.pipeline.training_model.eval()
+        with torch.no_grad():
+            _ = self.pipeline._Step(
+                batch, 
+                batch_idx, 
+                step_type='predict', # do not log the loss because the pipeline is not attached to a trainer
+                )
+        hidden_state_tensor = self.supply_hidden_state_tensor()
+        
+        reconstructed_loss, l1_loss, intermediate_state = self.sae_layer(hidden_state_tensor, **self.train_config)
+        
+        pre_act = intermediate_state["pre_act"]
+        sparsity = (pre_act > 1e-3).sum() / pre_act.numel()
+        avg_act_pos = pre_act[pre_act > 1e-3].mean()
+        
+        self.log(step_type + "_reconstructed_loss", reconstructed_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        self.log(step_type + "_l1_loss", l1_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        
+        self.log(step_type + "_sparsity", sparsity, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        self.log(step_type + "_avg_act_pos", avg_act_pos, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        
+        loss = reconstructed_loss + l1_loss
+        
+        return loss, 0.0, None
