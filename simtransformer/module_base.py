@@ -556,7 +556,38 @@ class PipelineBase(lightning.LightningModule):
         """
         pass
 
+    def create_hook_fn(self, 
+                       model_to_hook_str: str,
+                       tensor_to_hook_str: str, 
+                       storage_dict: EasyDict):
+        """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
 
+        Args:
+            model_to_hook_str (str): The name of the model to hook. This should be the name of the model variable in pipeline.train_model.
+            tensor_to_hook_str (str): The name of the tensor to hook. This should be the name of the tensor in the model output/input. Check the intermediate results' keys in the forward method of the model.
+            storage_dict (EasyDict): _description_
+        """
+        def hook_fn(module, input, output):
+            ## --------- change the probe model input here --------- ##
+            if isinstance(output, tuple):
+                direct_output, intermediate_dict = output
+            else:
+                direct_output = output
+                intermediate_dict = None
+            # combine model_to_hook_str and tensor_to_hook_str with a dot
+            keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
+            if tensor_to_hook_str == "output":
+                storage_dict.setattr_with_string(keyword, direct_output)
+            elif tensor_to_hook_str == "input":
+                if isinstance(input, tuple):
+                    storage_dict.setattr_with_string(keyword, input[0])
+                else: 
+                    storage_dict.setattr_with_string(keyword, input)
+            else:
+                storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
+        return hook_fn
+    
+    
 class DataModuleBase(lightning.LightningDataModule):
     """
     DataModuleBase is a base class for creating a data module using PyTorch Lightning.
@@ -827,36 +858,7 @@ class ProbePipelineBase(PipelineBase):
         """
         return self.training_model
         
-    def create_hook_fn(self, 
-                       model_to_hook_str: str,
-                       tensor_to_hook_str: str, 
-                       storage_dict: EasyDict):
-        """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
-
-        Args:
-            model_to_hook_str (str): The name of the model to hook. This should be the name of the model variable in pipeline.train_model.
-            tensor_to_hook_str (str): The name of the tensor to hook. This should be the name of the tensor in the model output/input. Check the intermediate results' keys in the forward method of the model.
-            storage_dict (EasyDict): _description_
-        """
-        def hook_fn(module, input, output):
-            ## --------- change the probe model input here --------- ##
-            if isinstance(output, tuple):
-                direct_output, intermediate_dict = output
-            else:
-                direct_output = output
-                intermediate_dict = None
-            # combine model_to_hook_str and tensor_to_hook_str with a dot
-            keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
-            if tensor_to_hook_str == "output":
-                storage_dict.setattr_with_string(keyword, direct_output)
-            elif tensor_to_hook_str == "input":
-                if isinstance(input, tuple):
-                    storage_dict.setattr_with_string(keyword, input[0])
-                else: 
-                    storage_dict.setattr_with_string(keyword, input)
-            else:
-                storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
-        return hook_fn
+    
     
     def supply_hidden_state_tensor(self, pos: torch.Tensor):
         """
@@ -1037,5 +1039,40 @@ class ProbePipelineBase(PipelineBase):
 
 
 class SAEPipelineBase(PipelineBase):
-    def __init__(self, )
+    def __init__(self, 
+                 sae_config: EasyDict, 
+                 sae_layer: nn.Module,
+                 sae_loss_model: nn.Module,
+                 pipeline: PipelineBase,
+                 added_sae_target_key: Optional[str] = None,
+    ):
+        super(SAEPipelineBase, self).__init__(
+            train_config=sae_config, 
+            training_model=sae_layer, 
+            loss_p_model=sae_loss_model)
+        self.added_sae_target_key = added_sae_target_key
+        self.sae_loss_model = sae_loss_model
+        self.pipeline = pipeline
+        
+        # ---- initialize the dictionary for hooking positions ---- #
+        sae_dict = EasyDict({})
+        for added_key in self.added_sae_target_key:
+            sae_dict.setattr_with_string(added_key, None)
+        self.sae_storage_dict = EasyDict(copy.deepcopy(sae_dict))
+        
+        ## --------- autohook for sae model --------- ##
+        self.num_sae_hook = 0
+        for key, value in sae_dict.flatten().items():
+            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
+            # print('key:', key)
+            sae_dict.setattr_with_string(
+                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.sae_storage_dict))
+            )
+            self.num_sae_hook += 1
+            
+        self.sae_dict = sae_dict
+        self.channel_loss_logger = []
+        print("Number of sae hooks added:", self.num_sae_hook)
     
