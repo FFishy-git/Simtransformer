@@ -1034,3 +1034,7 @@ class ProbePipelineBase(PipelineBase):
             self.channel_loss_logger = []
             
             return channel_loss_df_ls
+
+
+# class SAEPipelineBase(PipelineBase):
+    

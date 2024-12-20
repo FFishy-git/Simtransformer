@@ -167,7 +167,7 @@ class TrainingManagerBase():
         if kwargs.get('keep_output_dir', False):
             pass 
         else:
-            dir_handler_old.output_dir = None
+            dir_handler_old.output_abs_dir = None
             
         # override the dir_handler with the kwargs
         for key in kwargs.keys():
