@@ -1036,5 +1036,6 @@ class ProbePipelineBase(PipelineBase):
             return channel_loss_df_ls
 
 
-# class SAEPipelineBase(PipelineBase):
+class SAEPipelineBase(PipelineBase):
+    def __init__(self, )
     
