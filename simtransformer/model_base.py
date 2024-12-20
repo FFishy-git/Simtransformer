@@ -679,9 +679,9 @@ class MultiHeadAttentionDeBERTa(nnModule):
         
         return params_dict
 
-class SigmoiLU(nnModule):
+class SigmoidLU(nnModule):
     def __init__(self, beta=1.0):
-        super(SigmoiLU, self).__init__()
+        super(SigmoidLU, self).__init__()
         self.beta = beta
         
     def forward(self, x):
@@ -1174,7 +1174,7 @@ class Activation(nnModule):
         if activation == 'relu':
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
-            self.act = SigmoiLU()
+            self.act = SigmoidLU()
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
