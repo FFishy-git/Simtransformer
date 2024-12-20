@@ -1134,13 +1134,14 @@ class SparseAutoEncoder(nnModule):
     def __init__(self, 
                  input_size, 
                  hidden_size, 
+                 activation: str='relu',
                  ):
         super(SparseAutoEncoder, self).__init__()
         self.hidden_size = int(hidden_size)
         
         self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
         self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
-        self.act = nn.ReLU()
+        self.act = Activation(activation)
         
         # weight tying
         self.decoder.weight.data = self.encoder.weight.data.T
@@ -1150,6 +1151,7 @@ class SparseAutoEncoder(nnModule):
         
         # initialize the encoder weight
         nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        nn.init.zeros_(self.encoder.bias.data)
         
     def forward(self, x: torch.Tensor):
         """
@@ -1157,13 +1159,13 @@ class SparseAutoEncoder(nnModule):
         - x: tensor of shape (batch_size, input_size)
         """
         # Step 1: encode
-        x = self.encoder(x)
-        post_act = self.act(x)
+        pre_act = self.encoder(x)
+        post_act = self.act(pre_act)
         
         # Step 2: decode
         x = self.decoder(post_act)
         
-        return x, post_act
+        return x, pre_act
 
 
 class Activation(nnModule):

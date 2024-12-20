@@ -1105,7 +1105,7 @@ class SAEPipelineBase(PipelineBase):
         reconstructed_loss, l1_loss, intermediate_state = self.sae_layer(hidden_state_tensor, **self.train_config)
         
         pre_act = intermediate_state["pre_act"]
-        sparsity = (pre_act > 1e-3).sum() / pre_act.numel()
+        sparsity = 1 - (pre_act > 1e-3).sum() / pre_act.numel()
         avg_act_pos = pre_act[pre_act > 1e-3].mean()
         
         self.log(step_type + "_reconstructed_loss", reconstructed_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
