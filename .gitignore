@@ -5,3 +5,25 @@ misha/
 slurm_output/
 grid_search.py
 data/
+
+Multimodal/
+Tk_multimodal_reg.py
+tk_multimodal_reg
+inference.ipynb
+
+# ignore .gitignore file
+.gitignore
+
+#igonore model_bank2.py
+simtransformer/model_bank2.py
+
+# ignore manager.py
+simtransformer/manager.py
+
+# ignore interpreter.py
+interpret.ipynb
+
+# ignore tk_svm file
+tk_svm
+
+*.png
