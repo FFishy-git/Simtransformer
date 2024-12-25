@@ -679,18 +679,32 @@ class MultiHeadAttentionDeBERTa(nnModule):
         
         return params_dict
 
+class SigmoidLU(nnModule):
+    def __init__(self, beta=1.0):
+        super(SigmoidLU, self).__init__()
+        self.beta = beta
+        
+    def forward(self, x):
+        return torch.log(1.0 + torch.exp(self.beta * x)) / self.beta
 
 class MLP(nnModule):
-    def __init__(self, hidden_size, intermediate_size, resid_pdrop):
+    def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
         super(MLP, self).__init__()
         self.fc = nn.Linear(hidden_size, intermediate_size, bias=True)
-        self.act = nn.ReLU()
+        activation = kwargs.get('activation', 'relu')
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'sigmoidlu':
+            sigmoidlu_beta = kwargs.get('sigmoidlu_beta', 1.0)
+            self.act = SigmoiLU(beta=sigmoidlu_beta)
         self.proj = nn.Linear(intermediate_size, hidden_size, bias=True)
         self.dropout = nn.Dropout(resid_pdrop)
 
-    def forward(self, x):
+    def forward(self, x, neuron_mask=None):
         pre_activation = self.fc(x)
         post_activation = self.act(pre_activation)
+        if neuron_mask is not None:
+            post_activation = post_activation * neuron_mask
         output = self.proj(post_activation)
         output = self.dropout(output)
         intermediate = EasyDict({
@@ -1119,15 +1133,15 @@ class LinearWithChannel(nnModule):
 class SparseAutoEncoder(nnModule):
     def __init__(self, 
                  input_size, 
-                 expand_factor,
+                 hidden_size, 
+                 activation: str='relu',
                  ):
         super(SparseAutoEncoder, self).__init__()
-        self.expand_factor = expand_factor
-        self.hidden_size = int(input_size * expand_factor)
+        self.hidden_size = int(hidden_size)
         
         self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
         self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
-        self.act = nn.ReLU()
+        self.act = Activation(activation)
         
         # weight tying
         self.decoder.weight.data = self.encoder.weight.data.T
@@ -1136,7 +1150,8 @@ class SparseAutoEncoder(nnModule):
         # self.encoder.bias.data.fill_(0.0)
         
         # initialize the encoder weight
-        nn.init.xavier_uniform_(self.encoder.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        nn.init.zeros_(self.encoder.bias.data)
         
     def forward(self, x: torch.Tensor):
         """
@@ -1144,10 +1159,90 @@ class SparseAutoEncoder(nnModule):
         - x: tensor of shape (batch_size, input_size)
         """
         # Step 1: encode
-        x = self.encoder(x)
-        post_act = self.act(x)
+        pre_act = self.encoder(x)
+        post_act = self.act(pre_act)
         
         # Step 2: decode
         x = self.decoder(post_act)
         
-        return x, post_act
+        return x, pre_act
+
+
+class Activation(nnModule):
+    def __init__(self, activation: str):
+        super(Activation, self).__init__()
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'sigmoidlu':
+            self.act = SigmoidLU()
+        else:
+            raise ValueError(f"Activation {activation} is not supported!")
+    
+    def forward(self, x: torch.Tensor):
+        return self.act(x)
+    
+        
+class SAEWithChannel(nnModule):
+    def __init__(self, 
+                 input_size, 
+                 hidden_size, 
+                 channel_size_ls: Union[list, tuple, int],
+                 activation: str='relu',
+                 ):
+        super(SAEWithChannel, self).__init__()
+        self.hidden_size = int(hidden_size)
+        
+        self.W_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
+        self.b_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size))
+        self.b_dec = nn.parameter(torch.randn(*channel_size_ls, input_size))
+        self.act = Activation(activation)
+        
+        # initialize the encoder weight
+        nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        # initialize the encoder bias
+        nn.init.zeros_(self.encoder.bias.data)
+        nn.init.zeros_(self.decoder.bias.data)
+        
+    def forward(self, 
+                x: torch.Tensor, 
+                l1_penalty: float=1e-5,):
+        """
+        Args:
+        - x: tensor of shape (batch_size, input_size)
+        """
+        x_centered = x - self.b_enc
+        
+        pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
+        
+        reconstruct_loss = nn.functional.mse_loss(x_reconstructed, x, reduction='mean')
+        
+        l1_loss = self.l1_penalty * post_act * torch.norm(self.W_enc, p=2, dim=-1).unsqueeze(0)
+        
+        return reconstruct_loss, l1_loss, EasyDict({
+            'x_reconstructed': x_reconstructed, 
+            'pre_act': pre_act,
+        })
+
+# add a intermediate model where the gradient backpropagation is scaled by a factor
+class GradRescaler(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, scale):
+        ctx.save_for_backward(torch.tensor([scale]))
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        scale = ctx.saved_tensors[0]
+        return grad_output * scale.item(), None
+    
+class LayerWithGradRescale(nn.Module):
+    def __init__(self):
+        super(LayerWithGradRescale, self).__init__()
+        self.fn = GradRescaler.apply
+    
+    def forward(self, x, scale):
+        return self.fn(x, scale)

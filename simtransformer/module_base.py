@@ -6,12 +6,12 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 
-from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save
-import os, copy, operator
+from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD
+import os, copy, operator, time
 import pandas as pd
 import math, itertools
 
-class DirectoryHandler:
+class DirectoryHandlerBase:
     def __init__(self, 
                  load_data_abs_dir: str,
                  data_file_name: str,
@@ -20,7 +20,8 @@ class DirectoryHandler:
                  load_ckpt_abs_path: Optional[str] = None,
                  output_abs_dir: Optional[str] = None,
                  create_run_under_abs_dir: Optional[str] = None, # will create a new output_dir if output_abs_dir is None
-                 training_name: Optional[str] = None
+                 training_name: Optional[str] = None, 
+                 postfix: Optional[str] = None,
                  ):
         """
         Args:
@@ -39,8 +40,8 @@ class DirectoryHandler:
         self.load_ckpt_abs_path = load_ckpt_abs_path
         self.output_abs_dir = output_abs_dir
         self.create_run_under_abs_dir = create_run_under_abs_dir
-        self.output_abs_dir = None
         self.training_name = training_name
+        self.postfix = None
     
     @classmethod
     def load_from_file(cls, path: str):
@@ -84,35 +85,47 @@ class DirectoryHandler:
     def output_dirhandler_path(self):
         return os.path.join(self.output_config_dir, "dirhandler.yaml")
     
-    def set_output_dir(self, training_name_suggest: str):
+    @property
+    def name_with_postfix(self):
+        if self.postfix is None or self.training_name is None:
+            raise ValueError("postfix or training_name is not set yet. Please call TrainingManager to set the output directory.")
+        return self.training_name + '-' + self.postfix
+    
+    def set_output_dir(self, training_name_suggest: str, seed: int):
         if self.training_name is None:
-            if self.output_abs_dir is None:
-                # create a new output directory with the given training_name_suggest
-                self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", training_name_suggest)
-                self.training_name = training_name_suggest
-            else:
-                self.training_name = os.path.basename(self.output_abs_dir)
-                # use the given output_abs_dir
-        else:
-            self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", self.training_name)
+            self.training_name = training_name_suggest
+        
+        # if self.postfix is None:
+        current_time = time.strftime("%m%d-%H%M%S")
+        self.postfix = f'seed{seed}-{current_time}'
+        
+        if self.output_abs_dir is None:
+            # create a new output directory with the given training_name_suggest
+            self.output_abs_dir = os.path.join(self.create_run_under_abs_dir, "run", self.name_with_postfix)
+            
         if not os.path.exists(self.output_abs_dir):
             os.makedirs(self.output_abs_dir)
             print(f"Create output directory: {self.output_abs_dir}")
-            
+        else:
+            print(f"Output directory already exists: {self.output_abs_dir}, using the existing directory.")
 
 class Vocab:
     def __init__(self, input: Union[list, dict]):
         if isinstance(input, list):
             self.vocab = {}
-            # get the unique tokens in input
-            tokens = set(input)
-            # add special tokens
-            tokens.update(["<eos>", "<pad>"])
+            if "<bos>" not in input:
+                input.append("<bos>")
+            if "<eos>" not in input:
+                input.append("<eos>")
+            if "<pad>" not in input:
+                input.append("<pad>")
             # create a vocab from the tokens
-            self.vocab = {token: idx for idx, token in enumerate(tokens)}
+            self.vocab = {token: idx for idx, token in enumerate(input)}
         elif isinstance(input, dict):
             self.vocab = input
             # add special tokens if not already present
+            if "<bos>" not in self.vocab:
+                self.vocab["<bos>"] = len(self.vocab)
             if "<eos>" not in self.vocab:
                 self.vocab["<eos>"] = len(self.vocab)
             if "<pad>" not in self.vocab:
@@ -197,24 +210,28 @@ class ConfigBase(EasyDict):
         """
         pass
 
-    def override(self, kwargs: dict):
+    def override(self, kwargs: dict, verbose: bool = False):
         """
         Override the configurations with the given kwargs.
+        There are two ways to override the configurations:
+        
+        - If the key in kwargs has the prefix of the configuration, e.g., `model_config.dim`, the corresponding key in the corresponding configuration will be updated.
+        - If the key in kwargs does not have the prefix of the configuration, the key will be added to all the sub-configurations by running the `setattr_with_string` function. An example of key of this kind is `cosine_scheduler_config.warmup_steps`.
         """
         # first check if the kwargs start with self.keys(), if so update the corresponding key
         for key, var in kwargs.items():
+            count = 0
             if key.startswith(tuple(self.keys())):
-                self.update({key: var})
+                self.update({key: var}) # The key already has the prefix, e.g., 'model_config.dim'
             else:
                 # if not, check if the key is in the nested dict, if two nested dicts have the same key, all the keys will be updated while raise a warning message but do not stop the process
                 for k, v in self.items():
-                    count = 0
                     if isinstance(v, EasyDict):
-                        if key in v.keys():
-                            v.update({key: var})
-                            count += 1
-                    if count > 1:
-                        print(f"Warning: {key} is in multiple configs. By default, all the keys will be updated.")
+                        # if key in v.keys():
+                        v.setattr_with_string(key, var)
+                        count += 1
+                if count > 1 and verbose:
+                    print(f"Warning: {key} will be added to multiple configs. By default, all the keys will be updated.")
         self.prepare()
 
 class PipelineBase(lightning.LightningModule):
@@ -271,7 +288,7 @@ class PipelineBase(lightning.LightningModule):
         self.training_model = training_model
         self.loss_p_model = loss_p_model
         self.loss_n_model = loss_n_model
-        self.loss_n_scale = self.train_config.loss_n_scale if self.train_config.use_loss_n else 0.0
+        self.loss_n_scale = getattr(self.train_config, "loss_n_scale", 0.0)
         self.last_epoch = -1 # to track is there is a change in self.current_epoch for calling on_my_epoch_end
     
     # initialize from an existing PipelineBase object
@@ -287,27 +304,21 @@ class PipelineBase(lightning.LightningModule):
     ## --------- default methods --------- ##
     def configure_optimizers(self):
         # Configure the optimizer.
-        if self.train_config.optimizer == "SGD":
-            optimizer = torch.optim.SGD(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                momentum=self.train_config.momentum,
-                weight_decay=self.train_config.weight_decay,
-            )
-        elif self.train_config.optimizer == "Adam":
-            optimizer = torch.optim.Adam(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-            )
-        elif self.train_config.optimizer == "AdamW":
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                lr=self.train_config.learning_rate,
-                weight_decay=self.train_config.weight_decay
-            )
+        optimizer_dict = {
+            'SGD': torch.optim.SGD,
+            'Adam': torch.optim.Adam,
+            'AdamW': torch.optim.AdamW,
+            'RMSprop': torch.optim.RMSprop,
+            'Shampoo': Shampoo,
+            'signSGD': signSGD,
+        }
+        optimizer_name = self.train_config.optimizer
+        if optimizer_name not in optimizer_dict.keys():
+            raise ValueError(f"Optimizer {optimizer_name} is not implemented!")
         else:
-            raise NotImplementedError(
-                f"Optimizer {self.train_config.optimizer} is not implemented!"
+            optimizer = optimizer_dict[optimizer_name](
+                self.parameters(),
+                **self.train_config[f'{optimizer_name}_optimizer_config']
             )
             
         # Configure the learning rate scheduler.
@@ -330,7 +341,10 @@ class PipelineBase(lightning.LightningModule):
         else:
             # use no scheduler
             scheduler = None
-        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        if scheduler is not None:
+            return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
+        else:
+            return optimizer
     
     def lr_scheduler_step(
             self,
@@ -542,14 +556,66 @@ class PipelineBase(lightning.LightningModule):
         """
         pass
 
+    def create_hook_fn(self, 
+                       model_to_hook_str: str,
+                       tensor_to_hook_str: str, 
+                       storage_dict: EasyDict):
+        """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
 
+        Args:
+            model_to_hook_str (str): The name of the model to hook. This should be the name of the model variable in pipeline.train_model.
+            tensor_to_hook_str (str): The name of the tensor to hook. This should be the name of the tensor in the model output/input. Check the intermediate results' keys in the forward method of the model.
+            storage_dict (EasyDict): _description_
+        """
+        def hook_fn(module, input, output):
+            ## --------- change the probe model input here --------- ##
+            if isinstance(output, tuple):
+                direct_output, intermediate_dict = output
+            else:
+                direct_output = output
+                intermediate_dict = None
+            # combine model_to_hook_str and tensor_to_hook_str with a dot
+            keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
+            if tensor_to_hook_str == "output":
+                storage_dict.setattr_with_string(keyword, direct_output)
+            elif tensor_to_hook_str == "input":
+                if isinstance(input, tuple):
+                    storage_dict.setattr_with_string(keyword, input[0])
+                else: 
+                    storage_dict.setattr_with_string(keyword, input)
+            else:
+                storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
+        return hook_fn
+    
+    def add_forward_hooks(self, hook_target_key, model): 
+        # ---- initialize the dictionary for hooking positions ---- #
+        hook_dict = EasyDict({})
+        for added_key in hook_target_key:
+            hook_dict.setattr_with_string(added_key, None)
+        storage_dict = EasyDict(copy.deepcopy(hook_dict))
+        
+        ## --------- autohook for sae model --------- ##
+        num_hook = 0
+        for key, value in hook_dict.flatten().items():
+            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+            model_to_hook = operator.attrgetter(model_to_hook_str)(model)
+            # print('key:', key)
+            hook_dict.setattr_with_string(
+                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, storage_dict))
+            )
+            num_hook += 1
+            
+        return hook_dict, storage_dict, num_hook
+    
+    
 class DataModuleBase(lightning.LightningDataModule):
     """
     DataModuleBase is a base class for creating a data module using PyTorch Lightning.
     It provides methods for setting up the data, creating data loaders, and transforming batches.
     Attributes:
         data_config (EasyDict): Data configuration.
-        dir_handler (DirectoryHandler): Directory handler for loading and saving data.
+        dir_handler (DirectoryHandlerBase): Directory handler for loading and saving data.
         vocab (Optional[Vocab]): Vocabulary for the data.
         data_train (Any): Training data.
         data_val (Any): Validation data.
@@ -581,11 +647,11 @@ class DataModuleBase(lightning.LightningDataModule):
         transfer_batch_to_device(batch, device, dataloader_idx):
             Transfer the batch to the device.
         """
-    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandler):
+    def __init__(self, data_config: EasyDict, dir_handler: DirectoryHandlerBase):
         """
         Args:
             data_config (EasyDict): data configuration
-            dir_handler (DirectoryHandler): directory handler
+            dir_handler (DirectoryHandlerBase): directory handler
         """
         super().__init__()
         self.data_config = data_config
@@ -745,6 +811,7 @@ class ProbePipelineBase(PipelineBase):
                  pipeline: PipelineBase, # suppose you have a pipeline that inherits from PipelineBase, then pass it here
                  added_probe_target_key: Optional[str] = None, 
                  added_vis_target_key: Optional[str] = None,
+                 pos_label: list = None,
                  ) -> None:
         """Note that pipeline here is not attached to any trainer. So all the hooks are not activated, including the logger.
 
@@ -767,43 +834,47 @@ class ProbePipelineBase(PipelineBase):
         self.pipeline = pipeline
         
         # ---- initialize the dictionary for hooking positions ---- #
-        probe_dict = EasyDict({})
-        for added_key in self.added_probe_target_key:
-            probe_dict.setattr_with_string(added_key, None)
-        self.probe_storage_dict = EasyDict(copy.deepcopy(probe_dict))
         
-        ## ---- initialize the dictionary for hooking attention ---- ##
-        vis_dict = EasyDict({})
-        for added_key in self.added_vis_target_key:
-            vis_dict.setattr_with_string(added_key, None)
-        self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
+        self.probe_dict, self.probe_storage_dict, self.num_probe_hook = self.add_forward_hooks(self.added_probe_target_key, self.pipeline.training_model)
+        
+        self.vis_dict, self.vis_storage_dict, self.num_vis_hook = self.add_forward_hooks(self.added_vis_target_key, self.pipeline.training_model)
+        # probe_dict = EasyDict({})
+        # for added_key in self.added_probe_target_key:
+        #     probe_dict.setattr_with_string(added_key, None)
+        # self.probe_storage_dict = EasyDict(copy.deepcopy(probe_dict))
+        
+        # ## ---- initialize the dictionary for hooking attention ---- ##
+        # vis_dict = EasyDict({})
+        # for added_key in self.added_vis_target_key:
+        #     vis_dict.setattr_with_string(added_key, None)
+        # self.vis_storage_dict = EasyDict(copy.deepcopy(vis_dict))
 
-        ## --------- autohook for probe model --------- ##
-        self.num_probe_hook = 0
-        for key, value in probe_dict.flatten().items():
-            # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
-            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
-            # print('key:', key)
-            probe_dict.setattr_with_string(
-                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
-            )
-            self.num_probe_hook += 1
+        # ## --------- autohook for probe model --------- ##
+        # self.num_probe_hook = 0
+        # for key, value in probe_dict.flatten().items():
+        #     # split the key into the model to hook and the specific tensor to hook by the last dot. Example: model.blocks.layer_0.attn.output -> model.blocks.layer_0.attn, output
+        #     model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+        #     model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
+        #     # print('key:', key)
+        #     probe_dict.setattr_with_string(
+        #         key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.probe_storage_dict))
+        #     )
+        #     self.num_probe_hook += 1
             
-        ## --------- autohook for vis model --------- ##
-        for key, value in vis_dict.flatten().items():
-            model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
-            model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
-            # print('key:', key)
-            vis_dict.setattr_with_string(
-                key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
-            )
+        # ## --------- autohook for vis model --------- ##
+        # for key, value in vis_dict.flatten().items():
+        #     model_to_hook_str, tensor_to_hook_str = key.rsplit(".", 1)
+        #     model_to_hook = operator.attrgetter(model_to_hook_str)(self.pipeline.training_model)
+        #     # print('key:', key)
+        #     vis_dict.setattr_with_string(
+        #         key, model_to_hook.register_forward_hook(self.create_hook_fn(model_to_hook_str, tensor_to_hook_str, self.vis_storage_dict))
+        #     )
         
-        self.probe_dict = probe_dict
-        self.vis_dict = vis_dict # for later releasing the memory
+        # self.probe_dict = probe_dict
+        # self.vis_dict = vis_dict # for later releasing the memory
         
         self.channel_loss_logger = []
-        
+        self.pos_label = pos_label
         print("Number of probe hooks added:", self.num_probe_hook)
 
     @property
@@ -812,36 +883,7 @@ class ProbePipelineBase(PipelineBase):
         """
         return self.training_model
         
-    def create_hook_fn(self, 
-                       model_to_hook_str: str,
-                       tensor_to_hook_str: str, 
-                       storage_dict: EasyDict):
-        """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
-
-        Args:
-            model_to_hook_str (str): The name of the model to hook. This should be the name of the model variable in pipeline.train_model.
-            tensor_to_hook_str (str): The name of the tensor to hook. This should be the name of the tensor in the model output/input. Check the intermediate results' keys in the forward method of the model.
-            storage_dict (EasyDict): _description_
-        """
-        def hook_fn(module, input, output):
-            ## --------- change the probe model input here --------- ##
-            if isinstance(output, tuple):
-                direct_output, intermediate_dict = output
-            else:
-                direct_output = output
-                intermediate_dict = None
-            # combine model_to_hook_str and tensor_to_hook_str with a dot
-            keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
-            if tensor_to_hook_str == "output":
-                storage_dict.setattr_with_string(keyword, direct_output)
-            elif tensor_to_hook_str == "input":
-                if isinstance(input, tuple):
-                    storage_dict.setattr_with_string(keyword, input[0])
-                else: 
-                    storage_dict.setattr_with_string(keyword, input)
-            else:
-                storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
-        return hook_fn
+    
     
     def supply_hidden_state_tensor(self, pos: torch.Tensor):
         """
@@ -883,6 +925,11 @@ class ProbePipelineBase(PipelineBase):
         """
         Reshape the probing_output and probe_label to the same shape for calculating the loss.
         
+        probing_output: (batch_size, [num_probe_hook, msk_seq_len], *out_channel_size_ls, probe_output_size) -> (batch_size, probe_output_size, num_probe_hook, msk_seq_len, *out_channel_size_ls)
+        
+        probe_label: (batch_size, *out_channel_size_ls) -> (batch_size, [num_probe_hook, msk_seq_len], *in_channel_size_ls, *out_channel_size_ls)
+        
+        [num_probe_hook, msk_seq_len] = *in_channel_size_ls
         """
         
         # move the last dimension to the dimension 1
@@ -907,7 +954,7 @@ class ProbePipelineBase(PipelineBase):
             loss_p, loss_n, output = self.pipeline._Step(
                 batch, 
                 batch_idx, 
-                step_type=None, # do not log the loss because the pipeline is not attached to a trainer
+                step_type='predict', # do not log the loss because the pipeline is not attached to a trainer
                 )
             
         _, probe_batch, _ = self._unpack_batch(batch)
@@ -980,8 +1027,10 @@ class ProbePipelineBase(PipelineBase):
     
     def process_and_reset_channel_loss(self, pos_label: Optional[list] = None):
         """
-        Process the channel loss for visualization
+        Process the channel loss for visualization, by default, use self.pos_label
         """
+        if pos_label is None:
+            pos_label = self.pos_label
         if len(self.channel_loss_logger) == 0:
             return None
         else:
@@ -1011,4 +1060,60 @@ class ProbePipelineBase(PipelineBase):
             
             self.channel_loss_logger = []
             
-            return channel_loss_df
+            return channel_loss_df_ls
+
+
+class SAEPipelineBase(PipelineBase):
+    def __init__(self, 
+                 sae_config: EasyDict, 
+                 sae_layer: nn.Module,
+                 pipeline: PipelineBase,
+                 added_sae_target_key: Optional[str] = None,
+    ):
+        super(SAEPipelineBase, self).__init__(
+            train_config=sae_config, 
+            training_model=sae_layer, 
+            loss_p_model=None)
+        self.added_sae_target_key = added_sae_target_key
+        self.pipeline = pipeline
+        
+        self.hook_dict, self.storage_dict, self.num_hook = self.add_forward_hooks(self.added_sae_target_key, self.pipeline.training_model)
+        
+        print("Number of sae hooks added:", self.num_sae_hook)
+    
+    @property
+    def sae_layer(self):
+        return self.training_model
+    
+    def supply_hidden_state_tensor(self):
+        hidden_state = list(self.storage_dict.flatten().values())
+        hidden_state_tensor = torch.stack(hidden_state, dim = -1) # shape: (batch_size, seq_len, hidden_size, num_sae_hook)
+        hidden_state_tensor = hidden_state_tensor.reshape(-1, *hidden_state_tensor.shape[-2:]) # shape: (batch_size * seq_len, hidden_size, num_sae_hook)
+        return hidden_state_tensor.permute(0, 2, 1) # shape: (batch_size * seq_len, num_sae_hook, hidden_size)
+    
+    def _Step(self, batch, batch_idx, step_type: str):
+        ## --------------- forward pass --------------- ##
+        self.pipeline.training_model.eval()
+        with torch.no_grad():
+            _ = self.pipeline._Step(
+                batch, 
+                batch_idx, 
+                step_type='predict', # do not log the loss because the pipeline is not attached to a trainer
+                )
+        hidden_state_tensor = self.supply_hidden_state_tensor()
+        
+        reconstructed_loss, l1_loss, intermediate_state = self.sae_layer(hidden_state_tensor, **self.train_config)
+        
+        pre_act = intermediate_state["pre_act"]
+        sparsity = 1 - (pre_act > 1e-3).sum() / pre_act.numel()
+        avg_act_pos = pre_act[pre_act > 1e-3].mean()
+        
+        self.log(step_type + "_reconstructed_loss", reconstructed_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        self.log(step_type + "_l1_loss", l1_loss, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        
+        self.log(step_type + "_sparsity", sparsity, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        self.log(step_type + "_avg_act_pos", avg_act_pos, prog_bar=True, logger=True, batch_size=self.len_batch(batch))
+        
+        loss = reconstructed_loss + l1_loss
+        
+        return loss, 0.0, None
