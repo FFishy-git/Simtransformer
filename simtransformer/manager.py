@@ -260,81 +260,6 @@ class TrainingManagerBase():
             wandb_logger = False
         return wandb_logger
     
-<<<<<<< HEAD
-
-=======
-    def generate_customed_trainer(self, pipeline_type='train', callbacks_ls=[], **kwargs):
-        if pipeline_type == 'train':
-            pipeline = self.pipeline
-        elif pipeline_type == 'probe':
-            pipeline = self.probe_pipeline
-        
-        callback_ls = []
-        for cb in callbacks_ls:
-            if cb.endswith('_ckpt'):
-                if cb == 'min_val_loss_ckpt':
-                    callback_ls.append(ModelCheckpoint(
-                        dirpath=self.dir_handler.output_dir,
-                        filename='{epoch}-{val_loss:.4f}', 
-                        monitor='val_loss',
-                        mode='min',
-                    ))
-                # check if the callback name is 'per_{n}_epoch_ckpt' where n is an integer
-                elif re.match(r'per_\d+_epoch_ckpt', cb):
-                    n = int(cb.split('_')[1])
-                    callback_ls.append(ModelCheckpoint(
-                        dirpath=self.dir_handler.output_dir,
-                        filename='{epoch}-{val_loss:.4f}', 
-                        monitor='val_loss',
-                        every_n_epochs=n, 
-                        save_top_k=-1,
-                    ))
-                elif cb == 'per_epoch_ckpt':
-                    callback_ls.append(ModelCheckpoint(
-                        dirpath=self.dir_handler.output_dir,
-                        filename='{epoch}-{val_loss:.4f}', 
-                        monitor='val_loss',
-                        every_n_epochs=1, 
-                        save_top_k=-1,
-                    ))
-                # check if the callback name is 'epoch_[a, b, c...]_ckpt' where a, b, c... is a list of integers
-                elif re.match(r'epoch_\[.*\]_ckpt', cb):
-                    ckpt_epochs = [int(i) for i in cb.split('_')[1][1:-1].split(',')]
-                    callback_ls.append(EpochCheckpointCallback(
-                        ckpt_epochs=ckpt_epochs,
-                        dirpath=self.dir_handler.output_dir,
-                    ))
-                # check if the callback name is 'top_{k}_ckpt' where k is an integer
-                elif re.match(r'top_\d+_ckpt', cb):
-                    k = int(cb.split('_')[1])
-                    callback_ls.append(ModelCheckpoint(
-                        dirpath=self.dir_handler.output_dir,
-                        filename='{epoch}-{val_loss:.4f}', 
-                        monitor='val_loss',
-                        save_top_k=k,
-                    ))
-                else:
-                    print(f"Unknown callback name skipped: {cb}")
-            elif cb.endswith('lr_monitor'):
-                if self.wandb_logger is not False:
-                    callback_ls.append(LearningRateMonitor(logging_interval='step'))
-                else:
-                    print("Wandb logger is not initialized, skipping lr_monitor callback.")
-            else:
-                print(f"Unknown callback name skipped: {cb}")
-        
-        if len(callback_ls) == 0:
-            callback_ls = None
-        
-        trainer = Trainer(
-            logger=self.wandb_logger,
-            default_root_dir=self.dir_handler.output_dir,
-            callbacks=callback_ls,
-            max_epochs=self.train_config.max_epochs,
-        )
-        return trainer
-                
->>>>>>> 4eb4dd11131c041195a686c85380a441b91f382c
     
     @final
     def fit(self):
@@ -364,11 +289,7 @@ class TrainingManagerBase():
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
             logger=self.wandb_logger,
-<<<<<<< HEAD
             callbacks=[lr_monitor, checkpoint_callback, custom_checkpoint_callback] if self.train_config.save_epoch is not None else [lr_monitor, checkpoint_callback],
-=======
-            callbacks=[lr_monitor, checkpoint_callback] if self.wandb_logger is not False else None,
->>>>>>> 4eb4dd11131c041195a686c85380a441b91f382c
             default_root_dir=self.dir_handler.output_dir,
         )
         precision = getattr(self.train_config, 'matmul_precision', 'highest')
