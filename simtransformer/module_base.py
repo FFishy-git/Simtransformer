@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 
-from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD
+from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD, normSGD
 import os, copy, operator, time
 import pandas as pd
 import math, itertools
@@ -311,6 +311,7 @@ class PipelineBase(lightning.LightningModule):
             'RMSprop': torch.optim.RMSprop,
             'Shampoo': Shampoo,
             'signSGD': signSGD,
+            'normSGD': normSGD,
         }
         optimizer_name = self.train_config.optimizer
         if optimizer_name not in optimizer_dict.keys():

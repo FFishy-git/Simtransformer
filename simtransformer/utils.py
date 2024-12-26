@@ -214,8 +214,9 @@ def clever_load(file_path):
         df = pd.read_csv(file_path)
         return df
     elif file_path.endswith(".txt"):
-        with open(file_path, "r") as f:
-            return f.read()
+        with open(file_path, 'r') as file:
+            vocab_list = [line.strip() for line in file]
+        return vocab_list
                 
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")
@@ -591,6 +592,32 @@ class signSGD(optim.Optimizer):
                 p.data -= group['lr'] * grad
 
         return loss
+    
+class normSGD(optim.Optimizer):
+    def __init__(self, params, lr=0.01):
+        defaults = dict(lr=lr
+                          )
+        super(normSGD, self).__init__(params, defaults)
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                # Normalize the gradient
+                grad = p.grad / (p.grad.norm() + 1e-8)
+
+                # Update the parameters
+                p.data -= group['lr'] * grad
+
+        return loss
+
+
+
     
 from lightning.pytorch.callbacks import Callback
     
