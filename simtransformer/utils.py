@@ -213,6 +213,9 @@ def clever_load(file_path):
         #     return obj
         df = pd.read_csv(file_path)
         return df
+    elif file_path.endswith(".txt"):
+        with open(file_path, "r") as f:
+            return f.read()
                 
     else:
         raise NotImplementedError(f"File extension {file_path.split('.')[-1]} is not supported!")
