@@ -630,3 +630,48 @@ class EpochCheckpointCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         if trainer.current_epoch in self.ckpt_epochs:
             trainer.save_checkpoint(os.path.join(self.dirpath, f'epoch={trainer.current_epoch:02d}.ckpt'))
+
+
+def dominance_metrics(tensor, dim, metrics_to_use=None):
+    """
+    Calculate dominance metrics along a specified dimension of a tensor using PyTorch.
+    
+    Parameters:
+        tensor (torch.Tensor): The input tensor.
+        dim (int): The dimension along which to compute the metrics.
+        metrics_to_use (list): A list of metrics to compute. Options include:
+                               "Dominance Index", "Top-to-Mean Ratio",
+                               "Z-Score", "Entropy".
+                               If None, all metrics will be computed.
+    
+    Returns:
+        dict: A dictionary with the selected metrics, where each metric's value is 
+              a tensor computed along the specified dimension.
+    """
+    # Ensure tensor is a PyTorch tensor
+    tensor = torch.tensor(tensor, dtype=torch.float32)
+    
+    # Components along the specified dimension
+    max_vals, _ = torch.max(tensor, dim=dim, keepdim=True)
+    sum_vals = torch.sum(tensor, dim=dim, keepdim=True)
+    mean_vals = torch.mean(tensor, dim=dim, keepdim=True)
+    std_devs = torch.std(tensor, dim=dim, keepdim=True, unbiased=False)
+    proportions = tensor / sum_vals
+
+    # Available metrics
+    all_metrics = {
+        "Dominance Index": max_vals / sum_vals,
+        "Top-to-Mean Ratio": max_vals / mean_vals,
+        "Z-Score": (max_vals - mean_vals) / (std_devs + 1e-8),  # Add epsilon to prevent division by zero
+        "Entropy": -torch.sum(proportions * torch.log(proportions + 1e-8), dim=dim) / torch.log(torch.tensor(tensor.size(dim), dtype=torch.float32))
+    }
+
+    # Filter metrics to compute
+    if metrics_to_use is None:
+        metrics_to_use = all_metrics.keys()
+    
+    # if only a string is provided
+    if isinstance(metrics_to_use, str):
+        return all_metrics[metrics_to_use]
+    else:
+        return {metric: torch.squeeze(all_metrics[metric], dim=dim) for metric in metrics_to_use if metric in all_metrics}
