@@ -312,6 +312,7 @@ class PipelineBase(lightning.LightningModule):
             'Shampoo': Shampoo,
             'signSGD': signSGD,
             'normSGD': normSGD,
+            'NormalizeSGD': NormalizeSGD,
         }
         optimizer_name = self.train_config.optimizer
         if optimizer_name not in optimizer_dict.keys():
