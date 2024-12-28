@@ -616,6 +616,33 @@ class normSGD(optim.Optimizer):
 
         return loss
 
+class NormalizeSGD(optim.Optimizer):
+    def __init__(self, 
+                 params, 
+                 lr=0.01,
+                 weight_decay=0.0,
+                 ):
+        defaults = dict(lr=lr, weight_decay=weight_decay)
+        super(NormalizeSGD, self).__init__(params, defaults)
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                lr = group['lr']
+                weight_decay = group['weight_decay']
+                gradient = p.grad / (p.grad.norm(dim=-1, keepdim=True) + 1e-8)
+                dim = p.data.shape[-1]
+                gradient = gradient * math.sqrt(dim)
+                if weight_decay != 0:
+                    p.data.add_(p.data, alpha=-weight_decay * lr)
+                p.data -= lr * gradient
+        return loss
 
 
     
