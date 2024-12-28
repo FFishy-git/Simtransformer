@@ -275,21 +275,21 @@ class TrainingManagerBase():
             mode='min',
         )
 
+        callback_ls = [checkpoint_callback]
         # epoch checkpoint
-        if self.train_config.save_epoch is not None:
+        if getattr(self.train_config, 'save_epoch', None) is not None:
             save_epoch = self.train_config.save_epoch
             custom_checkpoint_callback = EpochCheckpointCallback(save_epoch=save_epoch, run_dir = self.dir_handler.output_dir)
-
-        else: raise ValueError("save_epoch is not specified in the configuration.")
-        # custom_checkpoint_callback = CustomCheckpointCallback(save_epoch=save_epoch, run_dir = self.dir_handler.output_dir)
-        
+            callback_ls.append(custom_checkpoint_callback)
     
 
         lr_monitor = LearningRateMonitor(logging_interval='step')
+        callback_ls.append(lr_monitor)
+        
         trainer = Trainer(
             max_epochs=self.train_config.max_epochs,
             logger=self.wandb_logger,
-            callbacks=[lr_monitor, checkpoint_callback, custom_checkpoint_callback] if self.train_config.save_epoch is not None else [lr_monitor, checkpoint_callback],
+            callbacks=callback_ls if self.wandb_logger is not False else None,
             default_root_dir=self.dir_handler.output_dir,
         )
         precision = getattr(self.train_config, 'matmul_precision', 'highest')
@@ -423,34 +423,3 @@ class TrainingManagerBase():
     
     def config_probepipeline(self):
         raise NotImplementedError("This function should be implemented in the subclass.")
-
-
-##
-class CustomCheckpointCallback(lightning.pytorch.callbacks.Callback):
-    def __init__(self, save_epoch, run_dir):
-        self.save_epoch = save_epoch
-        self.run_dir = run_dir
-
-    def on_epoch_end(self, trainer, pl_module):
-        if trainer.current_epoch == self.save_epoch:
-            checkpoint_callback = ModelCheckpoint(
-                dirpath= self.run_dir,
-                filename='{epoch}-{val_loss:.4f}',
-                monitor=None,
-                save_top_k=1,
-                save_last=False,
-                save_weights_only=False,
-                mode='min',
-            )
-            checkpoint_callback.on_validation_end(trainer, pl_module)
-            print(f"Checkpoint saved for epoch {self.save_epoch}")    
-##
-class EpochCheckpointCallback(lightning.pytorch.callbacks.Callback):
-    def __init__(self, save_epoch, run_dir):
-        super().__init__()
-        self.ckpt_epochs = save_epoch
-        self.run_dir = run_dir
-
-    def on_train_epoch_end(self, trainer, pl_module):
-        if trainer.current_epoch == self.ckpt_epochs:
-            trainer.save_checkpoint(os.path.join(self.run_dir, f'epoch_{trainer.current_epoch:02d}.ckpt'))
