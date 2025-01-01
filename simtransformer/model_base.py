@@ -1191,6 +1191,8 @@ class Activation(nnModule):
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
             self.act = SigmoidLU()
+        elif activation == 'powerrelu':
+            self.act = PowerReLU()
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
