@@ -687,6 +687,22 @@ class SigmoidLU(nnModule):
     def forward(self, x):
         return torch.log(1.0 + torch.exp(self.beta * x)) / self.beta
 
+class PowerReLU(nnModule):
+    def __init__(self, power=2.0):
+        """
+        PowerReLU activation function.
+        
+        Args:
+            p (float): The power to which the positive part of the input is raised. Default is 2.0.
+        """
+        super(PowerReLU, self).__init__()
+        self.p = power
+
+    def forward(self, x):
+        # Apply the PowerReLU function
+        return torch.where(x > 0, x ** self.p, torch.zeros_like(x))
+
+
 class MLP(nnModule):
     def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
         super(MLP, self).__init__()
