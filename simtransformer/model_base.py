@@ -696,11 +696,11 @@ class PowerReLU(nnModule):
             p (float): The power to which the positive part of the input is raised. Default is 2.0.
         """
         super(PowerReLU, self).__init__()
-        self.p = power
+        self.power = power
 
     def forward(self, x):
         # Apply the PowerReLU function
-        return torch.where(x > 0, x ** self.p, torch.zeros_like(x))
+        return torch.where(x > 0, x ** self.power, torch.zeros_like(x))
 
 
 class MLP(nnModule):
