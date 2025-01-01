@@ -696,7 +696,7 @@ class MLP(nnModule):
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
             sigmoidlu_beta = kwargs.get('sigmoidlu_beta', 1.0)
-            self.act = SigmoiLU(beta=sigmoidlu_beta)
+            self.act = SigmoidLU(beta=sigmoidlu_beta)
         self.proj = nn.Linear(intermediate_size, hidden_size, bias=True)
         self.dropout = nn.Dropout(resid_pdrop)
 
