@@ -1151,13 +1151,14 @@ class SparseAutoEncoder(nnModule):
                  input_size, 
                  hidden_size, 
                  activation: str='relu',
+                 **kwargs,
                  ):
         super(SparseAutoEncoder, self).__init__()
         self.hidden_size = int(hidden_size)
         
         self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
         self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
-        self.act = Activation(activation)
+        self.act = Activation(activation, **kwargs)
         
         # weight tying
         self.decoder.weight.data = self.encoder.weight.data.T
@@ -1185,14 +1186,15 @@ class SparseAutoEncoder(nnModule):
 
 
 class Activation(nnModule):
-    def __init__(self, activation: str):
+    def __init__(self, activation: str, **kwargs):
         super(Activation, self).__init__()
         if activation == 'relu':
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
             self.act = SigmoidLU()
         elif activation == 'powerrelu':
-            self.act = PowerReLU()
+            if 'power' in kwargs:
+                self.act = PowerReLU(kwargs['power'])
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
