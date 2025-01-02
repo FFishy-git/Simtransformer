@@ -1195,6 +1195,8 @@ class Activation(nnModule):
         elif activation == 'powerrelu':
             if 'power' in kwargs:
                 self.act = PowerReLU(kwargs['power'])
+            else:
+                self.act = PowerReLU()
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
