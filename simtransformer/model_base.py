@@ -1154,34 +1154,40 @@ class SparseAutoEncoder(nnModule):
                  **kwargs,
                  ):
         super(SparseAutoEncoder, self).__init__()
+        # weight = nn.Parameter(torch.randn(hidden_size, input_size))
+        # self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
+        # self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
         self.hidden_size = int(hidden_size)
-        
-        self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
-        self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
         self.act = Activation(activation, **kwargs)
-        
+        self.W = nn.Parameter(torch.randn(hidden_size, input_size) * 0.01)
+        self.encoder_bias = nn.Parameter(torch.zeros(hidden_size))
+
         # weight tying
-        self.decoder.weight.data = self.encoder.weight.data.T
-        
+        # self.decoder.weight.data = self.encoder.weight.data.T
+                
         # initialize bias
         # self.encoder.bias.data.fill_(0.0)
         
         # initialize the encoder weight
-        nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
-        nn.init.zeros_(self.encoder.bias.data)
+        # nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        # nn.init.zeros_(self.encoder.bias.data)
+        nn.init.zeros_(self.encoder_bias.data)
+        nn.init.kaiming_uniform_(self.W.data, a=math.sqrt(5))
         
     def forward(self, x: torch.Tensor):
         """
         Args:
         - x: tensor of shape (batch_size, input_size)
         """
-        # Step 1: encode
-        pre_act = self.encoder(x)
+        # # Step 1: encode
+        # pre_act = self.encoder(x)
+        # post_act = self.act(pre_act)
+        
+        # # Step 2: decode
+        # x = self.decoder(post_act)
+        pre_act = x @ self.W.t() + self.encoder_bias
         post_act = self.act(pre_act)
-        
-        # Step 2: decode
-        x = self.decoder(post_act)
-        
+        x = post_act @ self.W
         return x, pre_act
 
 
