@@ -700,7 +700,8 @@ class PowerReLU(nnModule):
 
     def forward(self, x):
         # Apply the PowerReLU function
-        return torch.where(x > 0, x ** self.power, torch.zeros_like(x))
+        # return torch.where(x > 0, x ** self.power, torch.zeros_like(x))
+        return nn.functional.relu(x) ** self.power
 
 
 class MLP(nnModule):
@@ -1221,38 +1222,48 @@ class SAEWithChannel(nnModule):
         super(SAEWithChannel, self).__init__()
         self.hidden_size = int(hidden_size)
         
-        self.W_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
-        self.b_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size))
-        self.b_dec = nn.parameter(torch.randn(*channel_size_ls, input_size))
-        self.act = Activation(activation, kwargs)
+        self.W_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
+        self.b_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
+        self.b_dec = nn.Parameter(torch.randn(*channel_size_ls, input_size))
+        self.act = Activation(activation, **kwargs)
         
         # initialize the encoder weight
-        nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.W_enc.data, a=math.sqrt(5))
         # initialize the encoder bias
-        nn.init.zeros_(self.encoder.bias.data)
-        nn.init.zeros_(self.decoder.bias.data)
-        
+        nn.init.zeros_(self.b_enc.data)
+        nn.init.zeros_(self.b_dec.data)
+    
+    @property
+    def W(self):
+        return self.W_enc
+    
+    @property
+    def encoder_bias(self):
+        return self.b_enc
+    
     def forward(self, 
                 x: torch.Tensor, 
                 l1_penalty: float=1e-5,):
         """
         Args:
-        - x: tensor of shape (batch_size, input_size)
+        - x: tensor of shape (batch_size, *channel_size_ls, input_size)
         """
         x_centered = x - self.b_enc
         
-        pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
+        pre_act = torch.einsum('...ij,...j->...i', self.W_enc, x_centered) + self.b_enc
+        # pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
         
         post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
         
-        x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
+        x_reconstructed = torch.einsum('...ij,...i->...j', self.W_enc.transpose(-1, -2), post_act) + self.b_dec
+        # x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
         
-        reconstruct_loss = nn.functional.mse_loss(x_reconstructed, x, reduction='mean')
+        # reconstruct_loss = nn.functional.mse_loss(x_reconstructed, x, reduction='mean')
         
-        l1_loss = self.l1_penalty * post_act * torch.norm(self.W_enc, p=2, dim=-1).unsqueeze(0)
+        # l1_loss = self.l1_penalty * post_act * torch.norm(self.W_enc, p=2, dim=-1).unsqueeze(0)
         
-        return reconstruct_loss, l1_loss, EasyDict({
-            'x_reconstructed': x_reconstructed, 
+        return x_reconstructed, EasyDict({
+            'post_act': post_act,
             'pre_act': pre_act,
         })
 
