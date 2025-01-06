@@ -1216,6 +1216,7 @@ class SAEWithChannel(nnModule):
                  hidden_size, 
                  channel_size_ls: Union[list, tuple, int],
                  activation: str='relu',
+                 **kwargs,
                  ):
         super(SAEWithChannel, self).__init__()
         self.hidden_size = int(hidden_size)
@@ -1223,7 +1224,7 @@ class SAEWithChannel(nnModule):
         self.W_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
         self.b_enc = nn.parameter(torch.randn(*channel_size_ls, hidden_size))
         self.b_dec = nn.parameter(torch.randn(*channel_size_ls, input_size))
-        self.act = Activation(activation)
+        self.act = Activation(activation, kwargs)
         
         # initialize the encoder weight
         nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
