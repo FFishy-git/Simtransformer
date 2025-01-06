@@ -702,3 +702,28 @@ def dominance_metrics(tensor, dim, metrics_to_use=None):
         return all_metrics[metrics_to_use]
     else:
         return {metric: torch.squeeze(all_metrics[metric], dim=dim) for metric in metrics_to_use if metric in all_metrics}
+
+
+def Calinski_Harabasz_score(x):
+    # x: shape (max_buffer_vis_size, *channel_size_ls, hidden_size)
+    
+    # Step 1: find a threshold for the pre-activation, which is computed as 0.5 times the largest value in the first dimension
+    thres = 0.5 * x.max(dim=0)[0] # shape: (*channel_size_ls, hidden_size)
+    cluster_ge_thres = (x > thres)
+    cluster_le_thres = torch.logical_not(cluster_ge_thres)
+
+    # Step 2: compute the mean for each cluster
+    mean_ge_thres = x[cluster_ge_thres].mean()
+    mean_le_thres = x[cluster_le_thres].mean()
+    mean = x.flatten().mean()
+    
+    # Step 3: compute the variance for each cluster
+    std_ge_thres = x[cluster_ge_thres].std()
+    std_le_thres = x[cluster_le_thres].std()
+    
+    # Step 4: compute the between-cluster variance
+    between_cluster_variance = (mean_ge_thres - mean)**2 * cluster_ge_thres.float().sum() + (mean_le_thres - mean)**2 * cluster_le_thres.float().sum()
+    
+    within_cluster_variance = (std_ge_thres**2 * cluster_ge_thres.float().sum() + std_le_thres**2 * cluster_le_thres.float().sum())
+    
+    return between_cluster_variance / within_cluster_variance
