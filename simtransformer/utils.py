@@ -297,7 +297,8 @@ def check_cosine_similarity(embedding,
                             max_size=16,
                             title=None, 
                             diag_only=False, 
-                            figsize=(5, 3)):
+                            figsize=(5, 3), 
+                            return_tensor=False):
     # check the cosine similarity between the embeddings
     if not diag_only:
         if isinstance(embedding, torch.Tensor):
@@ -340,7 +341,7 @@ def check_cosine_similarity(embedding,
                 if title is not None:
                     plt.title(title)
                 plt.show()
-        return cos_sim
+        return cos_sim if not return_tensor else torch.tensor(cos_sim, dtype=torch.float32)
     else:
         if isinstance(embedding, torch.Tensor):
             embedding_np = embedding.cpu().detach().numpy()
@@ -367,7 +368,7 @@ def check_cosine_similarity(embedding,
             if title is not None:
                 plt.title(title)
             plt.show()
-        return cos_sim
+        return cos_sim if not return_tensor else torch.tensor(cos_sim, dtype=torch.float32)
 
 def calculate_l2_similarity(input, 
                             target, 
@@ -704,8 +705,11 @@ def dominance_metrics(tensor, dim, metrics_to_use=None):
         return {metric: torch.squeeze(all_metrics[metric], dim=dim) for metric in metrics_to_use if metric in all_metrics}
 
 
-def Calinski_Harabasz_score(x):
+def Calinski_Harabasz_score(x, dim=0):
     # x: shape (max_buffer_vis_size, *channel_size_ls, hidden_size)
+    
+    # make the dim of interest the first dimension
+    x = x.transpose(0, dim)
     
     # Step 1: find a threshold for the pre-activation, which is computed as 0.5 times the largest value in the first dimension
     thres = 0.5 * x.max(dim=0)[0] # shape: (*channel_size_ls, hidden_size)
