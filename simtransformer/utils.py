@@ -727,3 +727,23 @@ def Calinski_Harabasz_score(x):
     within_cluster_variance = (std_ge_thres**2 * cluster_ge_thres.float().sum() + std_le_thres**2 * cluster_le_thres.float().sum())
     
     return between_cluster_variance / within_cluster_variance
+
+
+def neuron_sorting(neuron_pattern, mode='max'):
+    if mode == 'min':
+        neuron_pattern = -neuron_pattern
+    # for each row of neuron_pattern, find the index of the maximum value
+    _, indices = torch.sort(torch.tensor(neuron_pattern), dim=1, descending=True)
+    # indices: shape: (num_neurons, num_patterns)
+    # NOTE: indices indicate the order of the patterns for each neuron
+    
+    # reorder the rows of neuron_pattern according to the first column of indices, e.g., the first column of indices is [2, 0, 1, 1], then the first row of the reordered neuron_pattern is the second row of the original neuron_pattern, the second and third rows of the reordered neuron_pattern are the last two rows of the original neuron_pattern, and the last row of the reordered neuron_pattern is the first row of the original neuron_pattern
+    
+    _, row_order = torch.sort(indices[:, 0], descending=False) # indices = [2, 0, 1, 1] -> row_order = [1, 2, 3, 0]
+    
+    reordered_neuron_pattern = neuron_pattern[row_order]
+    reordered_indices = indices[row_order]
+    
+    if mode == 'min':
+        reordered_neuron_pattern = -reordered_neuron_pattern
+    return reordered_neuron_pattern, row_order
