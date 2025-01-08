@@ -12,6 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+import operator
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
     combined = list(zip(data, indices))
@@ -751,3 +752,50 @@ def neuron_sorting(neuron_pattern, mode='max'):
     if mode == 'min':
         reordered_neuron_pattern = -reordered_neuron_pattern
     return reordered_neuron_pattern, row_order
+
+
+def create_hook_fn(keyword: str,
+                    tensor_to_hook_str: str, 
+                    storage_dict: EasyDict):
+    """return a hook function that can be used to hook a tensor from a model and store it in a storage_dict.
+
+    Args:
+    - keyword: the key to store the tensor in the storage_dict
+    - tensor_to_hook_str: the string representation of the tensor to hook
+    - storage_dict: the storage_dict to store the tensor
+    """
+    def hook_fn(module, input, output):
+        ## --------- change the probe model input here --------- ##
+        if isinstance(output, tuple):
+            direct_output, intermediate_dict = output
+        else:
+            direct_output = output
+            intermediate_dict = None
+        # combine model_to_hook_str and tensor_to_hook_str with a dot
+        # keyword = f"{model_to_hook_str}.{tensor_to_hook_str}"
+        if tensor_to_hook_str == "output":
+            storage_dict.setattr_with_string(keyword, direct_output)
+        elif tensor_to_hook_str == "input":
+            if isinstance(input, tuple):
+                storage_dict.setattr_with_string(keyword, input[0])
+            else: 
+                storage_dict.setattr_with_string(keyword, input)
+        else:
+            storage_dict.setattr_with_string(keyword, intermediate_dict[tensor_to_hook_str])
+    return hook_fn
+    
+def attach_hooks(TF_model, HookDict):
+    buffer = copy.deepcopy(HookDict)
+    hook_handles = copy.deepcopy(HookDict)
+    # set the value to None
+    for key in buffer.keys():
+        buffer[key] = None
+        hook_handles[key] = None
+    # attach hooks
+    for key in HookDict.keys():
+        parts = HookDict[key].split('.')
+        model_name = '.'.join(parts[:-1])
+        tensor_name = parts[-1]
+        model_to_hook = operator.attrgetter(model_name)(TF_model)
+        hook_handles[key] = model_to_hook.register_forward_hook(create_hook_fn(key, tensor_name, buffer))
+    return buffer, hook_handles
