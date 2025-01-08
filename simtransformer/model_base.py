@@ -1217,6 +1217,8 @@ class TopKSparseAutoEncoder(nnModule):
         - x: tensor of shape (batch_size, input_size)
         Returns:
         - x_recon: tensor of shape (batch_size, input_size)
+        - pre_act: tensor of shape (batch_size, hidden_size)
+        - post_act: tensor of shape (batch_size, hidden
 
         """
 
@@ -1232,8 +1234,10 @@ class TopKSparseAutoEncoder(nnModule):
 
         # Decoding step
         x_recon = post_act @ self.W
-        return x_recon, pre_act
-
+        return x_recon, EasyDict({
+            'post_act': post_act,
+            'pre_act': pre_act,
+        })
 
 class Activation(nnModule):
     def __init__(self, activation: str, **kwargs):
