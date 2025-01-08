@@ -1199,7 +1199,7 @@ class TopKSparseAutoEncoder(nnModule):
                 activation: str='relu',
                 **kwargs,
                 ):
-        super(SparseAutoEncoder, self).__init__()
+        super(TopKSparseAutoEncoder, self).__init__()
         self.hidden_size = int(hidden_size)
         self.k = k  # Top-K activations
         self.act = Activation(activation, **kwargs)
