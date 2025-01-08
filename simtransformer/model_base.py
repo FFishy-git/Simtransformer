@@ -1191,6 +1191,49 @@ class SparseAutoEncoder(nnModule):
         x = post_act @ self.W
         return x, pre_act
 
+class TopKSparseAutoEncoder(nnModule):
+    def __init__(self, 
+                input_size, 
+                hidden_size, 
+                k: int,  # Number of top activations to retain
+                activation: str='relu',
+                **kwargs,
+                ):
+        super(SparseAutoEncoder, self).__init__()
+        self.hidden_size = int(hidden_size)
+        self.k = k  # Top-K activations
+        self.act = Activation(activation, **kwargs)
+        
+        self.W = nn.Parameter(torch.randn(hidden_size, input_size) * 0.01)
+        self.encoder_bias = nn.Parameter(torch.zeros(hidden_size))
+        
+        nn.init.zeros_(self.encoder_bias.data)
+        nn.init.kaiming_uniform_(self.W.data, a=math.sqrt(5))
+
+
+    def forward(self, x: torch.Tensor):
+        """
+        Args:
+        - x: tensor of shape (batch_size, input_size)
+        Returns:
+        - x_recon: tensor of shape (batch_size, input_size)
+
+        """
+
+        # Encoding step
+        pre_act = x @ self.W.t() + self.encoder_bias
+        post_act = self.act(pre_act)
+
+        # Top-K Sparsification
+        if self.k < self.hidden_size:
+            threshold = torch.topk(post_act, self.k, dim=1, largest=True, sorted=False).values[:, -1:]
+            mask = post_act >= threshold  # Retain only top-K activations
+            post_act = post_act * mask  # Zero out other activations
+
+        # Decoding step
+        x_recon = post_act @ self.W
+        return x_recon, pre_act
+
 
 class Activation(nnModule):
     def __init__(self, activation: str, **kwargs):
