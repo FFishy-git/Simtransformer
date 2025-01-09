@@ -391,6 +391,17 @@ def calculate_l2_similarity(input,
         plt.show()
     return l2_dist_similarity.cpu().detach().numpy()
 
+# check the largest off-diagonal element
+def check_largest_off_diag(cos_sim, verbose=True):
+    cos_sim_off_diag = cos_sim - torch.diag(torch.diag(cos_sim))
+    largest_off_diag = cos_sim_off_diag.max()
+    largest_off_diag_indices = (cos_sim_off_diag == largest_off_diag).nonzero(as_tuple=True)
+    if verbose:
+        print(f'largest off-diagonal element: {largest_off_diag}')
+        print(f'indices of largest off-diagonal element: {largest_off_diag_indices}')
+
+    return largest_off_diag, largest_off_diag_indices
+
 import torch
 import torch.jit as jit
 import concurrent.futures
