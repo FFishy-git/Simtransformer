@@ -375,7 +375,8 @@ def calculate_l2_similarity(input,
                             target, 
                             verbose=False, 
                             title=None, 
-                            figsize=(5, 3)):
+                            figsize=(5, 3), 
+                            return_tensor=False):
     l2_dist = torch.norm(input - target, dim=-1)
     norm_1 = torch.norm(input, dim=-1)
     norm_2 = torch.norm(target, dim=-1)
@@ -389,7 +390,7 @@ def calculate_l2_similarity(input,
         if title is not None:
             plt.title(title)
         plt.show()
-    return l2_dist_similarity.cpu().detach().numpy()
+    return l2_dist_similarity.cpu().detach().numpy() if not return_tensor else l2_dist_similarity
 
 # check the largest off-diagonal element
 def check_largest_off_diag(cos_sim, verbose=True):
