@@ -402,6 +402,13 @@ def check_largest_off_diag(cos_sim, verbose=True):
 
     return largest_off_diag, largest_off_diag_indices
 
+def check_diag_average(cos_sim, verbose=True):
+    cos_sim_diag = torch.diag(cos_sim)
+    average_diag = cos_sim_diag.mean()
+    if verbose:
+        print(f'average of the diagonal: {average_diag}')
+    return average_diag
+
 import torch
 import torch.jit as jit
 import concurrent.futures
