@@ -1,20 +1,58 @@
-batch_size: 64
-lr_scheduler: cosine
-cosine_scheduler_config:
-  lr_decay_steps: 100000000.0
-  min_lr: 1.0e-05
-  warmup_steps: 1000
+AdamW_optimizer_config:
+  betas:
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+  lr: 0.001
+  weight_decay: 0.01
+Adam_optimizer_config:
+  betas:
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+  lr: 0.0001
+  weight_decay: 0.0
+RMSprop_optimizer_config:
+  alpha: 0.99
+  lr: 0.001
+  momentum: 0.0
+  weight_decay: 0.01
+SGD_optimizer_config:
+  lr: 0.01
+  momentum: 0.9
+  nesterov: true
+  weight_decay: 0.01
+Shampoo_optimizer_config:
+  betas:
+  - 0.9
+  - 0.999
+  lr: 0.1
+  momentum: 0.0
+  weight_decay: 0.0
 StepLR_scheduler_config:
   gamma: 0.1
   step_size: 1000
+batch_size: 32
+compile: true
+cosine_scheduler_config:
+  lr_decay_steps: 300000.0
+  min_lr: 1.0e-05
+  warmup_steps: 1000
 learning_rate: 0.001
+lr_scheduler: none
+matmul_precision: medium
 max_epochs: 100
+max_train_depth: 6
+num_workers: 8
 optimizer: AdamW
-use_wandb: true
+precision: 32
+val_check_interval: 1.0
 wandb_config:
-  wandb_project: composition_v1
-  wandb_entity: scgpt-siyu
-weight_decay: 0.01
-seed: 42
-num_workers: 4
-use_loss_n: true
+  wandb_entity: transformer-computation-graph
+  wandb_project: Tchr_Stud_DecEnc_Corr
+
+max_train_loop: 8
+max_val_loop: 36
+use_teacher_pred_for_next_loop: true
+train_temperature: 1.0
+val_temperature: 0.0
