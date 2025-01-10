@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 
-from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD, normSGD
+from .utils import CosineAnnealingWarmup, EasyDict, clever_load, clever_save, Shampoo, signSGD, normSGD, NormalizeSGD
 import os, copy, operator, time
 import pandas as pd
 import math, itertools
