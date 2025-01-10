@@ -1289,8 +1289,7 @@ class SAEWithChannel(nnModule):
         return self.b_enc
     
     def forward(self, 
-                x: torch.Tensor, 
-                l1_penalty: float=1e-5,):
+                x: torch.Tensor, ):
         """
         Args:
         - x: tensor of shape (batch_size, *channel_size_ls, input_size)
