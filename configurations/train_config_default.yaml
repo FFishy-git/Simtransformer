@@ -50,9 +50,3 @@ val_check_interval: 1.0
 wandb_config:
   wandb_entity: transformer-computation-graph
   wandb_project: Tchr_Stud_DecEnc_Corr
-
-max_train_loop: 8
-max_val_loop: 36
-use_teacher_pred_for_next_loop: true
-train_temperature: 1.0
-val_temperature: 0.0
