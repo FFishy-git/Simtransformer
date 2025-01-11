@@ -1294,14 +1294,14 @@ class SAEWithChannel(nnModule):
         Args:
         - x: tensor of shape (batch_size, *channel_size_ls, input_size)
         """
-        x_centered = x - self.b_enc
+        x_centered = x - self.b_dec
         
         pre_act = torch.einsum('...ij,...j->...i', self.W_enc, x_centered) + self.b_enc
         # pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
         
         post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
         
-        x_reconstructed = torch.einsum('...ij,...i->...j', self.W_enc.transpose(-1, -2), post_act) + self.b_dec
+        x_reconstructed = torch.einsum('...ij,...i->...j', self.W_enc, post_act) + self.b_dec
         # x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
         
         # reconstruct_loss = nn.functional.mse_loss(x_reconstructed, x, reduction='mean')
