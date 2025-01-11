@@ -1314,6 +1314,7 @@ class SAEWithChannel(nnModule):
         })
 
 # add a intermediate model where the gradient backpropagation is scaled by a factor
+# NOTE: should use apply method for autograd function https://pytorch.org/docs/stable/autograd.html#torch.autograd.Function
 class GradRescaler(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, scale):
