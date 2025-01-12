@@ -708,7 +708,8 @@ def dominance_metrics(tensor, dim, metrics_to_use=None):
               a tensor computed along the specified dimension.
     """
     # Ensure tensor is a PyTorch tensor
-    tensor = torch.tensor(tensor, dtype=torch.float32)
+    if not torch.is_tensor(tensor):
+        tensor = torch.tensor(tensor, dtype=torch.float32)
     
     # Components along the specified dimension
     max_vals, _ = torch.max(tensor, dim=dim, keepdim=True)
