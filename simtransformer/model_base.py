@@ -1289,7 +1289,8 @@ class SAEWithChannel(nnModule):
         return self.b_enc
     
     def forward(self, 
-                x: torch.Tensor, ):
+                x: torch.Tensor, 
+                neuron_mask: Optional[torch.Tensor]=None,):
         """
         Args:
         - x: tensor of shape (batch_size, *channel_size_ls, input_size)
@@ -1300,6 +1301,10 @@ class SAEWithChannel(nnModule):
         # pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
         
         post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        if neuron_mask is not None:
+            assert list(neuron_mask.shape) == self.channel_size_ls + [self.hidden_size], f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
+            post_act = post_act * neuron_mask.float() # Apply neuron mask
         
         x_reconstructed = torch.einsum('...ij,...i->...j', self.W_enc, post_act) + self.b_dec
         # x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
