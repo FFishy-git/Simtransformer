@@ -192,6 +192,17 @@ class EasyDict(AttributeDict):
         else:
             raise ValueError(f"Cannot set attribute {key} as {'.'.join(keys[:-1])} has value that is not an EasyDict.")
         
+    def popfirst(self):
+        """Pop the first key-value pair from the dictionary.
+
+        Returns:
+            tuple: the first key-value pair.
+        """
+        key = list(self.keys())[0]
+        value = self[key]
+        del self[key]
+        return key, value
+        
 
 def clever_load(file_path):
     """Support loading from both .yaml, .json, and .pth files.
@@ -757,7 +768,10 @@ def neuron_sorting(neuron_pattern, mode='max'):
     if mode == 'min':
         neuron_pattern = -neuron_pattern
     # for each row of neuron_pattern, find the index of the maximum value
-    _, indices = torch.sort(torch.tensor(neuron_pattern), dim=1, descending=True)
+    if isinstance(neuron_pattern, torch.Tensor):
+        _, indices = torch.sort(neuron_pattern, dim=1, descending=True)
+    else:
+        _, indices = torch.sort(torch.tensor(neuron_pattern), dim=1, descending=True)
     # indices: shape: (num_neurons, num_patterns)
     # NOTE: indices indicate the order of the patterns for each neuron
     
