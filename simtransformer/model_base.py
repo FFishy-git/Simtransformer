@@ -1238,6 +1238,8 @@ class TopKSparseAutoEncoder(nnModule):
             'post_act': post_act,
             'pre_act': pre_act,
         })
+        
+import re
 
 class Activation(nnModule):
     def __init__(self, activation: str, **kwargs):
@@ -1246,16 +1248,24 @@ class Activation(nnModule):
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
             self.act = SigmoidLU()
-        elif activation == 'powerrelu':
-            if 'power' in kwargs:
-                self.act = PowerReLU(kwargs['power'])
+        elif 'powerrelu' in activation:
+            # suppose the activation name is something like 'powerrelu2.0', 'powerrelu-2.0', 'powerrelu2', 'powerrelu - 2' so on, find the power value in the string
+            power = re.search(r'powerrelu\s*[-]?\s*(\d+\.?\d*)', activation)
+            if power:
+                power = float(power.group(1))
             else:
-                self.act = PowerReLU()
+                raise ValueError(f"Please provide the power value in the activation name {activation}!")
+            self.act = PowerReLU(power)
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
-    def forward(self, x: torch.Tensor):
-        return self.act(x)
+    def forward(self, x: torch.Tensor, topk: Optional[int]=None):
+        post_act = self.act(x)
+        if topk is not None:
+            threshold = torch.topk(post_act, topk, dim=-1, largest=True, sorted=False).values[..., -1:]
+            mask = post_act >= threshold
+            post_act = post_act * mask
+        return post_act
     
         
 class SAEWithChannel(nnModule):
@@ -1264,6 +1274,7 @@ class SAEWithChannel(nnModule):
                  hidden_size, 
                  channel_size_ls: Union[list, tuple, int],
                  activation: str='relu',
+                 use_neuron_weight: bool=False,
                  **kwargs,
                  ):
         super(SAEWithChannel, self).__init__()
@@ -1274,11 +1285,16 @@ class SAEWithChannel(nnModule):
         self.b_dec = nn.Parameter(torch.randn(*channel_size_ls, input_size))
         self.act = Activation(activation, **kwargs)
         
+        if 'use_neuron_weight' in kwargs:
+            self.neuron_weight = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
+            self.neuron_weight.fill_(1.0)
+        
         # initialize the encoder weight
         nn.init.kaiming_uniform_(self.W_enc.data, a=math.sqrt(5))
         # initialize the encoder bias
         nn.init.zeros_(self.b_enc.data)
         nn.init.zeros_(self.b_dec.data)
+        
     
     @property
     def W(self):
@@ -1290,7 +1306,8 @@ class SAEWithChannel(nnModule):
     
     def forward(self, 
                 x: torch.Tensor, 
-                neuron_mask: Optional[torch.Tensor]=None,):
+                neuron_mask: Optional[torch.Tensor]=None,
+                topk: Optional[int]=None,):
         """
         Args:
         - x: tensor of shape (batch_size, *channel_size_ls, input_size)
@@ -1300,11 +1317,14 @@ class SAEWithChannel(nnModule):
         pre_act = torch.einsum('...ij,...j->...i', self.W_enc, x_centered) + self.b_enc
         # pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
         
-        post_act = self.act(pre_act) # shape: (batch_size, *channel_size_ls, hidden_size)
+        post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
         
         if neuron_mask is not None:
             assert neuron_mask.shape == self.b_enc.shape, f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
             post_act = post_act * neuron_mask.float() # Apply neuron mask
+        if hasattr(self, 'neuron_weight'):
+            post_act = post_act * self.neuron_weight
+        
         
         x_reconstructed = torch.einsum('...ij,...i->...j', self.W_enc, post_act) + self.b_dec
         # x_reconstructed = torch.matmul(self.W_enc.transpose(-1, -2), post_act.unsqueeze(-1)).squeeze(1) + self.b_dec
