@@ -1285,7 +1285,7 @@ class SAEWithChannel(nnModule):
         self.b_dec = nn.Parameter(torch.randn(*channel_size_ls, input_size))
         self.act = Activation(activation, **kwargs)
         
-        if 'use_neuron_weight' in kwargs:
+        if use_neuron_weight:
             self.neuron_weight = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
             self.neuron_weight.fill_(1.0)
         
@@ -1303,6 +1303,18 @@ class SAEWithChannel(nnModule):
     @property
     def encoder_bias(self):
         return self.b_enc
+    
+    def prune_neurons(self, neuron_mask: torch.Tensor, verbose: bool=False):
+        # Apply neuron mask and delete the neurons with False mask
+        self.hidden_size = neuron_mask.sum().item()
+        self.W_enc = nn.Parameter(self.W_enc[..., neuron_mask, :])
+        self.b_enc = nn.Parameter(self.b_enc[..., neuron_mask])
+        if hasattr(self, 'neuron_weight'):
+            self.neuron_weight = nn.Parameter(self.neuron_weight[..., neuron_mask])
+            
+        if verbose:
+            print(f"Pruned {neuron_mask.size(0) - self.hidden_size} neurons!")
+        
     
     def forward(self, 
                 x: torch.Tensor, 
