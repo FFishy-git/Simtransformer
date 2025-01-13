@@ -857,8 +857,8 @@ class AlignmentLoss(torch.nn.Module):
                 return (1.0 - self.cos_sim(input, target))
         else:
             if self.reduction == 'mean':
-                return - (input * target / (target.norm(dim=-1) + self.eps)).sum(dim=-1).mean()
+                return - (input * target / (target.norm(dim=-1, keepdim=True) + self.eps)).sum(dim=-1).mean()
             elif self.reduction == 'sum':
-                return - (input * target / (target.norm(dim=-1) + self.eps)).sum(dim=-1)
+                return - (input * target / (target.norm(dim=-1, keepdim=True) + self.eps)).sum(dim=-1)
             else:
-                return - (input * target / (target.norm(dim=-1) + self.eps))
+                return - (input * target / (target.norm(dim=-1, keepdim=True) + self.eps))
