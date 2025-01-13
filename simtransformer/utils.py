@@ -835,20 +835,30 @@ def attach_hooks(TF_model, HookDict):
     return buffer, hook_handles
 
 
-
 class AlignmentLoss(torch.nn.Module):
-    def __init__(self, dim=-1, eps=1e-8, reduction='mean'):
+    def __init__(self, dim=-1, eps=1e-8, reduction='mean', normalize=True):
         super().__init__()
-        self.cos_sim = torch.nn.CosineSimilarity(dim=dim, eps=eps)
+        if normalize:
+            self.cos_sim = torch.nn.CosineSimilarity(dim=dim, eps=eps)
         self.reduction = reduction
+        self.normalize = normalize
+        self.eps = eps
         
     def forward(self, input, target):
         """
         Compute the cosine similarity between W_enc and feat.
         """
-        if self.reduction == 'mean':
-            return 1.0 - self.cos_sim(input, target).mean()
-        elif self.reduction == 'sum':
-            return (1.0 - self.cos_sim(input, target)).sum()
+        if self.normalize:
+            if self.reduction == 'mean':
+                return 1.0 - self.cos_sim(input, target).mean()
+            elif self.reduction == 'sum':
+                return (1.0 - self.cos_sim(input, target)).sum()
+            else:
+                return (1.0 - self.cos_sim(input, target))
         else:
-            return (1.0 - self.cos_sim(input, target))
+            if self.reduction == 'mean':
+                return - (input * target / (target.norm(dim=-1) + self.eps)).sum(dim=-1).mean()
+            elif self.reduction == 'sum':
+                return - (input * target / (target.norm(dim=-1) + self.eps)).sum(dim=-1)
+            else:
+                return - (input * target / (target.norm(dim=-1) + self.eps))

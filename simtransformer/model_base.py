@@ -1286,8 +1286,7 @@ class SAEWithChannel(nnModule):
         self.act = Activation(activation, **kwargs)
         
         if use_neuron_weight:
-            self.neuron_weight = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
-            self.neuron_weight.fill_(1.0)
+            self.neuron_weight = nn.Parameter(torch.ones(*channel_size_ls, hidden_size))
         
         # initialize the encoder weight
         nn.init.kaiming_uniform_(self.W_enc.data, a=math.sqrt(5))
@@ -1332,7 +1331,7 @@ class SAEWithChannel(nnModule):
         post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
         
         if neuron_mask is not None:
-            assert neuron_mask.shape == self.b_enc.shape, f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
+            # assert neuron_mask.shape == self.b_enc.shape, f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
             post_act = post_act * neuron_mask.float() # Apply neuron mask
         if hasattr(self, 'neuron_weight'):
             post_act = post_act * self.neuron_weight
