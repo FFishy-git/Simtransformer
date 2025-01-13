@@ -1293,7 +1293,9 @@ class SAEWithChannel(nnModule):
         # initialize the encoder bias
         nn.init.zeros_(self.b_enc.data)
         nn.init.zeros_(self.b_dec.data)
-        
+    
+    def init_neuron_weight(self, b_enc_value: float=1.0):
+        self.neuron_weight = nn.Parameter(torch.ones_like(self.b_enc) * b_enc_value)
     
     @property
     def W(self):
