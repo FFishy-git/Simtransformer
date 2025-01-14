@@ -391,7 +391,7 @@ def calculate_l2_similarity(input,
     l2_dist = torch.norm(input - target, dim=-1)
     norm_1 = torch.norm(input, dim=-1)
     norm_2 = torch.norm(target, dim=-1)
-    l2_dist_similarity = l2_dist / torch.sqrt(norm_1 * norm_2)
+    l2_dist_similarity = (l2_dist / torch.sqrt(norm_1 * norm_2)).squeeze()
     if verbose:
         # histogram of the l2_dist_similarity
         plt.figure(figsize=figsize)
