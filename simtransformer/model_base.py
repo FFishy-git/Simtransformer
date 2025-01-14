@@ -1162,6 +1162,7 @@ class SparseAutoEncoder(nnModule):
         self.act = Activation(activation, **kwargs)
         self.W = nn.Parameter(torch.randn(hidden_size, input_size) * 0.01)
         self.encoder_bias = nn.Parameter(torch.zeros(hidden_size))
+        self.decoder_bias = nn.Parameter(torch.zeros(input_size))
 
         # weight tying
         # self.decoder.weight.data = self.encoder.weight.data.T
@@ -1174,6 +1175,7 @@ class SparseAutoEncoder(nnModule):
         # nn.init.zeros_(self.encoder.bias.data)
         nn.init.zeros_(self.encoder_bias.data)
         nn.init.kaiming_uniform_(self.W.data, a=math.sqrt(5))
+        nn.init.zeros_(self.decoder_bias.data)
         
     def forward(self, x: torch.Tensor):
         """
@@ -1188,7 +1190,7 @@ class SparseAutoEncoder(nnModule):
         # x = self.decoder(post_act)
         pre_act = x @ self.W.t() + self.encoder_bias
         post_act = self.act(pre_act)
-        x = post_act @ self.W
+        x = post_act @ self.W + self.decoder_bias
         return x, pre_act
 
 class TopKSparseAutoEncoder(nnModule):
