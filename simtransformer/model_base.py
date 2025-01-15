@@ -1332,11 +1332,13 @@ class SAEWithChannel(nnModule):
         pre_act = torch.einsum('...ij,...j->...i', self.W_enc, x_centered) + self.b_enc
         # pre_act = torch.matmul(self.W_enc, x_centered.unsqueeze(-1)).squeeze(1) + self.b_enc # shape: (batch_size, *channel_size_ls, hidden_size)
         
-        post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
-        
         if neuron_mask is not None:
             # assert neuron_mask.shape == self.b_enc.shape, f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
-            post_act = post_act * neuron_mask.float() # Apply neuron mask
+            pre_act = pre_act * neuron_mask.float() # Apply neuron mask
+            
+        post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        
         if hasattr(self, 'neuron_weight'):
             post_act = post_act * self.neuron_weight
         
