@@ -1233,8 +1233,7 @@ class SparseAutoEncoderWithThreshold(nnModule):
 
         pre_act = x @ self.W.t()
         threshold = self.threshold.unsqueeze(0) # (1, hidden_size)
-        pre_act = pre_act.clamp_(min=threshold)
-        post_act = self.act(pre_act)
+        post_act = pre_act.clamp_(min=threshold)
         x = post_act @ self.W + self.decoder_bias
         return x, pre_act
 
