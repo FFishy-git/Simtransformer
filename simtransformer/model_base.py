@@ -1193,6 +1193,53 @@ class SparseAutoEncoder(nnModule):
         x = post_act @ self.W + self.decoder_bias
         return x, pre_act
 
+class SparseAutoEncoderWithThreshold(nnModule):
+    def __init__(self, 
+                 input_size, 
+                 hidden_size, 
+                 **kwargs,
+                 ):
+        
+        super(SparseAutoEncoderWithThreshold, self).__init__()
+        # weight = nn.Parameter(torch.randn(hidden_size, input_size))
+        # self.encoder = nn.Linear(input_size, self.hidden_size, bias=True)
+        # self.decoder = nn.Linear(self.hidden_size, input_size, bias=False)
+        self.hidden_size = int(hidden_size)
+        self.threshold = torch.zeros(hidden_size) * -0.5
+        self.W = nn.Parameter(torch.randn(hidden_size, input_size) * 0.01)
+        self.decoder_bias = nn.Parameter(torch.zeros(input_size))
+
+        # weight tying
+        # self.decoder.weight.data = self.encoder.weight.data.T
+                
+        # initialize bias
+        # self.encoder.bias.data.fill_(0.0)
+        
+        # initialize the encoder weight
+        # nn.init.kaiming_uniform_(self.encoder.weight.data, a=math.sqrt(5))
+        # nn.init.zeros_(self.encoder.bias.data)
+        nn.init.kaiming_uniform_(self.W.data, a=math.sqrt(5))
+        nn.init.zeros_(self.decoder_bias.data)
+    
+    def set_threshold(self, threshold: torch.Tensor):
+        assert threshold.shape == (self.hidden_size,), f"Threshold shape {threshold.shape} does not match the hidden size {self.hidden_size}!"
+        self.threshold = threshold #
+
+    def forward(self, x: torch.Tensor):
+        """
+        Args:
+        - x: tensor of shape (batch_size, input_size)
+        """
+
+        pre_act = x @ self.W.t()
+        threshold = self.threshold.unsqueeze(0) # (1, hidden_size)
+        pre_act = pre_act.clamp_(min=threshold)
+        post_act = self.act(pre_act)
+        x = post_act @ self.W + self.decoder_bias
+        return x, pre_act
+
+
+
 class TopKSparseAutoEncoder(nnModule):
     def __init__(self, 
                 input_size, 
