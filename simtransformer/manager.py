@@ -277,9 +277,9 @@ class TrainingManagerBase():
 
         callback_ls = [checkpoint_callback]
         # epoch checkpoint
-        if getattr(self.train_config, 'save_epoch', None) is not None:
-            save_epoch = self.train_config.save_epoch
-            custom_checkpoint_callback = EpochCheckpointCallback(save_epoch=save_epoch, run_dir = self.dir_handler.output_dir)
+        if getattr(self.train_config, 'ckpt_epochs', None) is not None:
+            ckpt_epochs = self.train_config.ckpt_epochs
+            custom_checkpoint_callback = EpochCheckpointCallback(ckpt_epochs=ckpt_epochs, run_dir = self.dir_handler.output_dir)
             callback_ls.append(custom_checkpoint_callback)
     
 

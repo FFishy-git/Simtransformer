@@ -626,7 +626,7 @@ class signSGD(optim.Optimizer):
         return loss
     
 class normSGD(optim.Optimizer):
-    def __init__(self, params, lr=0.01):
+    def __init__(self, params, lr=0.0001):
         defaults = dict(lr=lr
                           )
         super(normSGD, self).__init__(params, defaults)
