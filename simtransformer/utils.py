@@ -12,6 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+from collections.abc import Mapping
 import operator
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
@@ -868,3 +869,15 @@ class AlignmentLoss(torch.nn.Module):
                 return - (input * target).sum(dim=-1)
             else:
                 return - (input * target)
+
+
+def clean_config(config):
+    """
+    Recursively clean nested objects (e.g., EasyDict) and return a plain dictionary.
+    """
+    if isinstance(config, Mapping):  # Check if it's a dict-like object
+        return {k: clean_config(v) for k, v in config.items()}
+    elif isinstance(config, list):  # Check for lists
+        return [clean_config(i) for i in config]
+    else:
+        return config  # Return primitive values as-is
