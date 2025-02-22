@@ -905,23 +905,23 @@ def matrix_entropy(matrix):
     return - (normalized_matrix * torch.log(normalized_matrix + 1e-8)).sum()
 
 
-def MIR(matrix_1, matrix_2):
+def MIR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
     """
     Compute the matrix mutual information ratio of two matrices.
     """
-    gram_matrix_1 = construct_gram_matrix(matrix_1) #
-    gram_matrix_2 = construct_gram_matrix(matrix_2) 
+    gram_matrix_1 = construct_gram_matrix(matrix_1, dim_1) #
+    gram_matrix_2 = construct_gram_matrix(matrix_2, dim_2) 
     hardamard_product = gram_matrix_1 * gram_matrix_2 # shape (..., n, n)
     matrix_information = matrix_entropy(gram_matrix_1) + matrix_entropy(gram_matrix_2) - matrix_entropy(hardamard_product)
 
     return matrix_information/min(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2)).detach().cpu().numpy()
 
 
-def HDR(matrix_1, matrix_2):
+def HDR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
     """
     compute the matrix entropy ratio of two matrices.
     """
-    gram_matrix_1 = construct_gram_matrix(matrix_1) # 
-    gram_matrix_2 = construct_gram_matrix(matrix_2) # 
+    gram_matrix_1 = construct_gram_matrix(matrix_1, dim_1) # 
+    gram_matrix_2 = construct_gram_matrix(matrix_2, dim_2) # 
     # HDR = |H(A) - H(B)| / max(H(A), H(B))
     return torch.abs(matrix_entropy(gram_matrix_1) - matrix_entropy(gram_matrix_2))/max(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2)).detach().cpu().numpy()
