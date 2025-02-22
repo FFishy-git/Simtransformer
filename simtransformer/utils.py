@@ -14,6 +14,12 @@ import seaborn as sns
 import pandas as pd
 from collections.abc import Mapping
 import operator
+from scipy.linalg import logm
+import warnings
+
+# Suppress specific warnings related to logm
+warnings.filterwarnings("ignore", message="logm result may be inaccurate")
+
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
     combined = list(zip(data, indices))
@@ -893,7 +899,7 @@ def construct_gram_matrix(matrix, dim=-1):
     normalized_matrix = matrix / np.linalg.norm(matrix, axis=-1, keepdims=True)
     gram_matrix = normalized_matrix @ normalized_matrix.T
     return gram_matrix
-
+    
 def matrix_entropy(matrix):
     """
     Compute the entropy of a positive-definite matrix.
@@ -903,9 +909,10 @@ def matrix_entropy(matrix):
     # compute the entropy
     assert matrix.shape[0] == matrix.shape[1]
     dim = matrix.shape[0]
-    normalized_matrix = matrix / dim
-    # return - (normalized_matrix * torch.log(normalized_matrix + 1e-8)).sum()
-    return - (normalized_matrix * np.log(normalized_matrix + 1e-8)).sum()
+    matrix = matrix / dim
+    log_matrix, _ = logm(matrix, disp=False)
+    # get the trace of the matrix
+    return -np.trace(matrix @ log_matrix)
 
 
 def MIR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
