@@ -881,3 +881,47 @@ def clean_config(config):
         return [clean_config(i) for i in config]
     else:
         return config  # Return primitive values as-is
+
+
+def construct_gram_matrix(matrix, dim=-1):
+    """
+    Construct a gram matrix from a matrix.
+    matrix: shape (..., n, m)
+    dim: the dimension to normalize the matrix along
+    """
+    normalized_matrix = matrix / torch.norm(matrix, dim=dim, keepdim=True) # shape (..., n, m)
+    return normalized_matrix @ normalized_matrix.T # shape (..., n, n)
+
+def matrix_entropy(matrix):
+    """
+    Compute the entropy of a positive-definite matrix.
+    matrix: shape (dim, dim)
+    dim: the dimension to normalize the matrix along
+    """
+    # compute the entropy
+    assert matrix.shape[0] == matrix.shape[1]
+    dim = matrix.shape[0]
+    normalized_matrix = matrix / dim
+    return - (normalized_matrix * torch.log(normalized_matrix + 1e-8)).sum()
+
+
+def MIR(matrix_1, matrix_2):
+    """
+    Compute the matrix mutual information ratio of two matrices.
+    """
+    gram_matrix_1 = construct_gram_matrix(matrix_1) #
+    gram_matrix_2 = construct_gram_matrix(matrix_2) 
+    hardamard_product = gram_matrix_1 * gram_matrix_2 # shape (..., n, n)
+    matrix_information = matrix_entropy(gram_matrix_1) + matrix_entropy(gram_matrix_2) - matrix_entropy(hardamard_product)
+
+    return matrix_information/min(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2)).detach().cpu().numpy()
+
+
+def HDR(matrix_1, matrix_2):
+    """
+    compute the matrix entropy ratio of two matrices.
+    """
+    gram_matrix_1 = construct_gram_matrix(matrix_1) # 
+    gram_matrix_2 = construct_gram_matrix(matrix_2) # 
+    # HDR = |H(A) - H(B)| / max(H(A), H(B))
+    return torch.abs(matrix_entropy(gram_matrix_1) - matrix_entropy(gram_matrix_2))/max(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2)).detach().cpu().numpy()
