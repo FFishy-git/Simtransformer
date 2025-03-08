@@ -14,6 +14,12 @@ import seaborn as sns
 import pandas as pd
 from collections.abc import Mapping
 import operator
+from scipy.linalg import logm
+import warnings
+
+# Suppress specific warnings related to logm
+warnings.filterwarnings("ignore", message="logm result may be inaccurate")
+
 
 def shuffle_with_indices(data: list, indices: Union[range, list]):
     combined = list(zip(data, indices))
@@ -881,3 +887,59 @@ def clean_config(config):
         return [clean_config(i) for i in config]
     else:
         return config  # Return primitive values as-is
+
+
+def construct_gram_matrix(matrix, dim=-1):
+    """
+    Construct a gram matrix from a matrix, the type of the matrix is nparray
+    matrix: shape (..., n, m)
+    dim: the dimension to normalize the matrix along
+    """
+    # normalized_matrix = matrix / torch.norm(matrix, dim=dim, keepdim=True) # shape (..., n, m)
+    normalized_matrix = matrix / np.linalg.norm(matrix, axis=-1, keepdims=True)
+    gram_matrix = normalized_matrix @ normalized_matrix.T
+    return gram_matrix
+    
+def matrix_entropy(matrix):
+    """
+    Compute the entropy of a positive-definite matrix.
+    matrix: shape (dim, dim)
+    dim: the dimension to normalize the matrix along
+    """
+    # compute the entropy
+    assert matrix.shape[0] == matrix.shape[1]
+    dim = matrix.shape[0]
+    matrix = matrix / dim
+    log_matrix, _ = logm(matrix, disp=False)
+    # get the trace of the matrix
+    return -np.trace(matrix @ log_matrix)
+
+
+def MIR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
+    """
+    Compute the matrix mutual information ratio of two matrices.
+    """
+    if type(matrix_1) == torch.Tensor:
+        matrix_1 = matrix_1.detach().cpu().numpy()
+    if type(matrix_2) == torch.Tensor:
+        matrix_2 = matrix_2.detach().cpu().numpy()
+    gram_matrix_1 = construct_gram_matrix(matrix_1, dim_1) #
+    gram_matrix_2 = construct_gram_matrix(matrix_2, dim_2) 
+    hardamard_product = gram_matrix_1 * gram_matrix_2 # shape (..., n, n)
+    matrix_mutual_information = matrix_entropy(gram_matrix_1) + matrix_entropy(gram_matrix_2) - matrix_entropy(hardamard_product)
+
+    return matrix_mutual_information/min(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2))
+
+
+def HDR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
+    """
+    compute the matrix entropy ratio of two matrices.
+    """
+    if type(matrix_1) == torch.Tensor:
+        matrix_1 = matrix_1.detach().cpu().numpy()
+    if type(matrix_2) == torch.Tensor:
+        matrix_2 = matrix_2.detach().cpu().numpy()
+    gram_matrix_1 = construct_gram_matrix(matrix_1, dim_1) # 
+    gram_matrix_2 = construct_gram_matrix(matrix_2, dim_2) # 
+    # HDR = |H(A) - H(B)| / max(H(A), H(B))
+    return np.abs(matrix_entropy(gram_matrix_1) - matrix_entropy(gram_matrix_2))/max(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2))
