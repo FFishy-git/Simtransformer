@@ -572,7 +572,7 @@ class MultiHeadAttentionDeBERTa(nnModule):
             assert head_mask.shape == (self._num_heads,), f"Head mask shape {head_mask.shape} does not match the number of heads {self._num_heads}!"
             head_mask = head_mask[None, None, :, None]
             o = o * head_mask
-
+        
         # Reshape to 3D tensor.
         o = torch.reshape(o, (-1, o.shape[1], self._vo_embed_size_per_head * self._num_heads)) # [batch_size, query_seq_len, vo_embed_size]
 
