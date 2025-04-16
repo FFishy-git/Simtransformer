@@ -1310,6 +1310,9 @@ class Activation(nnModule):
             self.act = nn.ReLU()
         elif activation == 'sigmoidlu':
             self.act = SigmoidLU()
+        elif activation == 'jumprelu':
+            self.act = JumpReLU(kwargs.get('theta', torch.tensor(0.0)))
+            
         elif 'powerrelu' in activation:
             # suppose the activation name is something like 'powerrelu2.0', 'powerrelu-2.0', 'powerrelu2', 'powerrelu - 2' so on, find the power value in the string
             power = re.search(r'powerrelu\s*[-]?\s*(\d+\.?\d*)', activation)
