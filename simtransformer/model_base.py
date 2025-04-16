@@ -703,6 +703,20 @@ class PowerReLU(nnModule):
         # return torch.where(x > 0, x ** self.power, torch.zeros_like(x))
         return nn.functional.relu(x) ** self.power
 
+class JumpReLU(nnModule):
+    def __init__(self, theta):
+        """
+        JumpReLU activation function.
+        
+        Args:
+            theta (tensor) the shape of theta should be the same as the input x(or the last dimension of x)
+        """
+        super(JumpReLU, self).__init__()
+        self.theta = theta
+
+    def forward(self, x):
+        # Apply the JumpReLU function
+        return torch.where(x > self.theta, x, torch.zeros_like(x))
 
 class MLP(nnModule):
     def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
