@@ -943,3 +943,21 @@ def HDR(matrix_1, matrix_2, dim_1=-1, dim_2=-1):
     gram_matrix_2 = construct_gram_matrix(matrix_2, dim_2) # 
     # HDR = |H(A) - H(B)| / max(H(A), H(B))
     return np.abs(matrix_entropy(gram_matrix_1) - matrix_entropy(gram_matrix_2))/max(matrix_entropy(gram_matrix_1), matrix_entropy(gram_matrix_2))
+
+
+def get_cos_threshold(features, angle_division_factor):
+    """
+    Get the cosine similarity threshold
+    features: shape (num, feature_dim)
+    angle_division_factor: Factor to divide the maximum angle by to create a stricter threshold
+    """
+    import math
+    cos_sim = check_cosine_similarity(features, features, return_tensor=True, verbose=False)
+    print(cos_sim.shape)
+    # get the max cosine similarity for each distinct feature
+    off_diag_cos_sim = cos_sim[np.triu(np.ones(cos_sim.shape), k=1).astype(bool)]
+    max_cos_sim = off_diag_cos_sim.max()
+    angle = math.acos(max_cos_sim)
+    divide_angle = angle / angle_division_factor
+    threshold = math.cos(divide_angle)
+    return threshold
