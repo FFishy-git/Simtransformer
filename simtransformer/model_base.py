@@ -718,6 +718,17 @@ class JumpReLU(nnModule):
         # Apply the JumpReLU function
         return torch.where(x > self.theta, x, torch.zeros_like(x))
 
+class ThresholdReLU(nnModule):
+    def __init__(self):
+        """
+        ThresholdReLU activation function. The difference between ReLU and ThresholdReLU is that in thresholdReLU, if a neuron is activated, the postactivation will substract the bias of the neuron.
+        """
+        super(ThresholdReLU, self).__init__()
+    
+    def forward(self, x, bias):
+        # Apply the ThresholdReLU function
+        return torch.where(x > bias, x, torch.zeros_like(x))
+
 class MLP(nnModule):
     def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
         super(MLP, self).__init__()
@@ -1312,6 +1323,8 @@ class Activation(nnModule):
             self.act = SigmoidLU()
         elif activation == 'jumprelu':
             self.act = JumpReLU(kwargs.get('theta', torch.tensor(0.0)))
+        elif activation == 'thresholdrelu':
+            self.act = ThresholdReLU()
             
         elif 'powerrelu' in activation:
             # suppose the activation name is something like 'powerrelu2.0', 'powerrelu-2.0', 'powerrelu2', 'powerrelu - 2' so on, find the power value in the string
@@ -1324,8 +1337,14 @@ class Activation(nnModule):
         else:
             raise ValueError(f"Activation {activation} is not supported!")
     
-    def forward(self, x: torch.Tensor, topk: Optional[int]=None):
-        post_act = self.act(x)
+    def forward(self, 
+                x: torch.Tensor, 
+                topk: Optional[int]=None, 
+                bias: Optional[torch.Tensor]=None):
+        if isinstance(self.act, ThresholdReLU):
+            post_act = self.act(x, bias)
+        else:
+            post_act = self.act(x)
         if topk is not None:
             threshold = torch.topk(post_act, topk, dim=-1, largest=True, sorted=False).values[..., -1:]
             mask = post_act >= threshold
@@ -1398,8 +1417,11 @@ class SAEWithChannel(nnModule):
         if neuron_mask is not None:
             # assert neuron_mask.shape == self.b_enc.shape, f"neuron_mask shape {neuron_mask.shape} does not match the hidden size {self.hidden_size}!"
             pre_act = pre_act * neuron_mask.float() # Apply neuron mask
-            
-        post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
+        
+        if isinstance(self.act.act, ThresholdReLU):
+            post_act = self.act(pre_act, bias=self.b_enc)
+        else:
+            post_act = self.act(pre_act, topk) # shape: (batch_size, *channel_size_ls, hidden_size)
         
         
         if hasattr(self, 'neuron_weight'):
