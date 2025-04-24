@@ -725,9 +725,9 @@ class ThresholdReLU(nnModule):
         """
         super(ThresholdReLU, self).__init__()
     
-    def forward(self, x, bias):
+    def forward(self, x, neg_bias):
         # Apply the ThresholdReLU function
-        return torch.where(x > bias, x, torch.zeros_like(x))
+        return torch.where(x > neg_bias, x, torch.zeros_like(x))
 
 class MLP(nnModule):
     def __init__(self, hidden_size, intermediate_size, resid_pdrop, **kwargs):
