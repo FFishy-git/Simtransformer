@@ -686,24 +686,27 @@ class NormalizeSGD(optim.Optimizer):
 
     
 from lightning.pytorch.callbacks import Callback
-    
-class EpochCheckpointCallback(Callback):
+import lightning.pytorch as pl
+
+class EpochCheckpointCallback(pl.Callback):
     def __init__(self, ckpt_epochs, dirpath):
         super().__init__()
         self.ckpt_epochs = ckpt_epochs
         self.dirpath = dirpath
 
-    def on_train_epoch_end(self, trainer, pl_module):
+    def on_train_epoch_end(self, *args, **kwargs):
+        trainer, pl_module = args[0], args[1]
         if trainer.current_epoch in self.ckpt_epochs:
             trainer.save_checkpoint(os.path.join(self.dirpath, f'epoch={trainer.current_epoch:02d}.ckpt'))
 
-class  StepCheckpointCallback(Callback):
+class  StepCheckpointCallback(pl.Callback):
     def __init__(self, ckpt_steps, dirpath):
         super().__init__()
         self.ckpt_steps = ckpt_steps
         self.dirpath = dirpath
 
-    def on_train_batch_end(self, trainer, pl_module):
+    def on_train_batch_end(self, *args, **kwargs):
+        trainer, pl_module = args[0], args[1]
         if trainer.global_step in self.ckpt_steps:
             trainer.save_checkpoint(os.path.join(self.dirpath, f'step={trainer.global_step}.ckpt'))
 
