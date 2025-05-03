@@ -1370,7 +1370,7 @@ class SAEWithChannel(nnModule):
                 nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[0], input_size))
             ])
             self._b_enc = nn.ParameterList([
-                nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[0]))
+                nn.Parameter(torch.zeros(*channel_size_ls, self.group_indices[0]))
             ])
             for i in range(1, len(self.group_indices)):
                 self._W_enc.append(
