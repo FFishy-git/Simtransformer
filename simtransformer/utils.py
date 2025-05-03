@@ -66,30 +66,32 @@ class CosineAnnealingWarmup(_LRScheduler):
             self,
             optimizer: Optimizer,
             warmup_steps: int,
-            learning_rate: float,
+            learning_rate: Union[float, list[float]],
             min_lr: float,
             lr_decay_steps: int,
             verbose: bool = False,
     ):
         self.warmup_steps = warmup_steps
         self.learning_rate = learning_rate
+        if isinstance(self.learning_rate, float):
+            self.learning_rate = [self.learning_rate]
         self.lr_decay_steps = lr_decay_steps
         self.min_lr = min_lr
         super().__init__(optimizer=optimizer, last_epoch=-1, verbose=verbose)
 
-    def get_warmup_lr(self, lrs):
-        return [lr * self._step_count / self.warmup_steps for lr in lrs] if isinstance(lrs, list) else lrs * self._step_count / self.warmup_steps 
+    def get_warmup_lr(self) -> list[float]:
+        return [lr * self._step_count / self.warmup_steps for lr in self.learning_rate] 
     
-    def get_decay_lr(self, lrs, coeff):
+    def get_decay_lr(self, coeff: float) -> list[float]:
         """
         coeff is the cosine coefficient.
         """
-        return [self.min_lr + coeff * (lr - self.min_lr) for lr in lrs] if isinstance(lrs, list) else self.min_lr + coeff * (lrs - self.min_lr) 
+        return [self.min_lr + coeff * (lr - self.min_lr) for lr in self.learning_rate]
     
-    def get_min_lr(self, lrs):
-        return [self.min_lr for _ in range(len(lrs))] if isinstance(lrs, list) else self.min_lr
+    def get_min_lr(self) -> list[float]:
+        return [self.min_lr for _ in range(len(self.learning_rate))] 
     
-    def get_lr(self):
+    def get_lr(self) -> list[float]:
         """
         We need to override the default behavior of the `get_lr` method to support warmup and decay.
         
@@ -99,13 +101,13 @@ class CosineAnnealingWarmup(_LRScheduler):
         """
         # Case 1: warmup phase
         if self._step_count < self.warmup_steps:
-            return [self.get_warmup_lr(group['lr']) for group in self.optimizer.param_groups]
+            return self.get_warmup_lr()
             # return [self.learning_rate * self._step_count / self.warmup_steps
             #         for group in self.optimizer.param_groups]
         
         # Case 2: Post-decay phase
         elif self._step_count > self.lr_decay_steps:
-            return [self.get_min_lr(group['lr']) for group in self.optimizer.param_groups]
+            return self.get_min_lr() 
         
         decay_ratio = (
             (self._step_count - self.warmup_steps)
@@ -113,7 +115,7 @@ class CosineAnnealingWarmup(_LRScheduler):
         )
         assert 0 <= decay_ratio <= 1
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-        return [self.get_decay_lr(group['lr'], coeff) for group in self.optimizer.param_groups]
+        return self.get_decay_lr(coeff)
         
         
 def MRR_fn(

@@ -1364,8 +1364,27 @@ class SAEWithChannel(nnModule):
         super(SAEWithChannel, self).__init__()
         self.hidden_size = int(hidden_size)
         
-        self.W_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
-        self.b_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
+        if 'group_indices' in kwargs: 
+            self.group_indices = kwargs['group_indices']
+            self._W_enc = [
+                nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[0], input_size))
+            ]
+            self._b_enc = [
+                nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[0]))
+            ]
+            for i in range(1, len(self.group_indices)):
+                self._W_enc.append(
+                    nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[i] - self.group_indices[i-1], input_size))
+                )
+                self._b_enc.append(
+                    nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[i] - self.group_indices[i-1]))
+                )
+        else:
+            self._W_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
+            self._b_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
+            
+        # self.W_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
+        # self.b_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
         self.b_dec = nn.Parameter(torch.randn(*channel_size_ls, input_size))
         self.act = Activation(activation, **kwargs)
         
@@ -1378,6 +1397,20 @@ class SAEWithChannel(nnModule):
         nn.init.zeros_(self.b_enc.data)
         nn.init.zeros_(self.b_dec.data)
     
+    @property 
+    def W_enc(self):
+        if isinstance(self._W_enc, list):
+            return torch.cat(self._W_enc, dim=-2)
+        else:
+            return self._W_enc
+    
+    @property
+    def b_enc(self):
+        if isinstance(self._b_enc, list):
+            return torch.cat(self._b_enc, dim=-1)
+        else:
+            return self._b_enc
+        
     def init_neuron_weight(self, b_enc_value: float=1.0):
         self.neuron_weight = nn.Parameter(torch.ones_like(self.b_enc) * b_enc_value)
     
