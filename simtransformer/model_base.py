@@ -1471,70 +1471,70 @@ class SAEWithChannel(nnModule):
             'pre_act': pre_act,
         })
         
-    def save_state_dict(self) -> dict:
-        """
-        Saves the state of the SAEWithChannel model.
+    # def save_state_dict(self) -> dict:
+    #     """
+    #     Saves the state of the SAEWithChannel model.
         
-        Returns:
-            dict: A dictionary containing the model's state including:
-                - W_enc: The encoder weights
-                - b_enc: The encoder biases
-                - b_dec: The decoder biases
-                - neuron_weight: The neuron weights (if they exist)
-        """
-        state_dict = {
-            'W_enc': self.W_enc.data,
-            'b_enc': self.b_enc.data,
-            'b_dec': self.b_dec.data,
-        }
+    #     Returns:
+    #         dict: A dictionary containing the model's state including:
+    #             - W_enc: The encoder weights
+    #             - b_enc: The encoder biases
+    #             - b_dec: The decoder biases
+    #             - neuron_weight: The neuron weights (if they exist)
+    #     """
+    #     state_dict = {
+    #         'W_enc': self.W_enc.data,
+    #         'b_enc': self.b_enc.data,
+    #         'b_dec': self.b_dec.data,
+    #     }
         
-        # Only save neuron_weight if it exists
-        if hasattr(self, 'neuron_weight'):
-            state_dict['neuron_weight'] = self.neuron_weight.data
+    #     # Only save neuron_weight if it exists
+    #     if hasattr(self, 'neuron_weight'):
+    #         state_dict['neuron_weight'] = self.neuron_weight.data
             
-        return state_dict
+    #     return state_dict
     
-    def load_state_dict(self, state_dict: dict):
-        """
-        Loads the state of the SAEWithChannel model from a state dictionary.
+    # def load_state_dict(self, state_dict: dict):
+    #     """
+    #     Loads the state of the SAEWithChannel model from a state dictionary.
         
-        Args:
-            state_dict (dict): A dictionary containing the model's state including:
-                - W_enc: The encoder weights
-                - b_enc: The encoder biases
-                - b_dec: The decoder biases
-                - neuron_weight: The neuron weights (if they exist)
-        """
-        # Load encoder weights
-        if isinstance(self._W_enc, nn.ParameterList):
-            # Handle grouped weights case
-            total_size = 0
-            for i, w in enumerate(self._W_enc):
-                group_size = w.shape[-2]  # Get the size of this group
-                self._W_enc[i].data = state_dict['W_enc'][..., total_size:total_size + group_size, :]
-                total_size += group_size
-        else:
-            # Handle single tensor case
-            self._W_enc.data = state_dict['W_enc']
+    #     Args:
+    #         state_dict (dict): A dictionary containing the model's state including:
+    #             - W_enc: The encoder weights
+    #             - b_enc: The encoder biases
+    #             - b_dec: The decoder biases
+    #             - neuron_weight: The neuron weights (if they exist)
+    #     """
+    #     # Load encoder weights
+    #     if isinstance(self._W_enc, nn.ParameterList):
+    #         # Handle grouped weights case
+    #         total_size = 0
+    #         for i, w in enumerate(self._W_enc):
+    #             group_size = w.shape[-2]  # Get the size of this group
+    #             self._W_enc[i].data = state_dict['W_enc'][..., total_size:total_size + group_size, :]
+    #             total_size += group_size
+    #     else:
+    #         # Handle single tensor case
+    #         self._W_enc.data = state_dict['W_enc']
         
-        # Load encoder biases
-        if isinstance(self._b_enc, nn.ParameterList):
-            # Handle grouped biases case
-            total_size = 0
-            for i, b in enumerate(self._b_enc):
-                group_size = b.shape[-1]  # Get the size of this group
-                self._b_enc[i].data = state_dict['b_enc'][..., total_size:total_size + group_size]
-                total_size += group_size
-        else:
-            # Handle single tensor case
-            self._b_enc.data = state_dict['b_enc']
+    #     # Load encoder biases
+    #     if isinstance(self._b_enc, nn.ParameterList):
+    #         # Handle grouped biases case
+    #         total_size = 0
+    #         for i, b in enumerate(self._b_enc):
+    #             group_size = b.shape[-1]  # Get the size of this group
+    #             self._b_enc[i].data = state_dict['b_enc'][..., total_size:total_size + group_size]
+    #             total_size += group_size
+    #     else:
+    #         # Handle single tensor case
+    #         self._b_enc.data = state_dict['b_enc']
         
-        # Load decoder biases
-        self.b_dec.data = state_dict['b_dec']
+    #     # Load decoder biases
+    #     self.b_dec.data = state_dict['b_dec']
         
-        # Load neuron weights if they exist in both the model and state_dict
-        if hasattr(self, 'neuron_weight') and 'neuron_weight' in state_dict:
-            self.neuron_weight.data = state_dict['neuron_weight']
+    #     # Load neuron weights if they exist in both the model and state_dict
+    #     if hasattr(self, 'neuron_weight') and 'neuron_weight' in state_dict:
+    #         self.neuron_weight.data = state_dict['neuron_weight']
         
 
 # add a intermediate model where the gradient backpropagation is scaled by a factor
