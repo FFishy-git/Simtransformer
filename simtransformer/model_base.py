@@ -1377,11 +1377,11 @@ class SAEWithChannel(nnModule):
                     nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[i] - self.group_indices[i-1], input_size))
                 )
                 self._b_enc.append(
-                    nn.Parameter(torch.randn(*channel_size_ls, self.group_indices[i] - self.group_indices[i-1]))
+                    nn.Parameter(torch.zeros(*channel_size_ls, self.group_indices[i] - self.group_indices[i-1]))
                 )
         else:
             self._W_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size, input_size))
-            self._b_enc = nn.Parameter(torch.randn(*channel_size_ls, hidden_size))
+            self._b_enc = nn.Parameter(torch.zeros(*channel_size_ls, hidden_size))
             
         self.b_dec = nn.Parameter(torch.randn(*channel_size_ls, input_size))
         self.act = Activation(activation, **kwargs)
