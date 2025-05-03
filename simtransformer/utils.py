@@ -77,12 +77,35 @@ class CosineAnnealingWarmup(_LRScheduler):
         self.min_lr = min_lr
         super().__init__(optimizer=optimizer, last_epoch=-1, verbose=verbose)
 
+    def get_warmup_lr(self, lrs):
+        return [lr * self._step_count / self.warmup_steps for lr in lrs] if isinstance(lrs, list) else lrs * self._step_count / self.warmup_steps 
+    
+    def get_decay_lr(self, lrs, coeff):
+        """
+        coeff is the cosine coefficient.
+        """
+        return [self.min_lr + coeff * (lr - self.min_lr) for lr in lrs] if isinstance(lrs, list) else self.min_lr + coeff * (lrs - self.min_lr) 
+    
+    def get_min_lr(self, lrs):
+        return [self.min_lr for _ in range(len(lrs))] if isinstance(lrs, list) else self.min_lr
+    
     def get_lr(self):
+        """
+        We need to override the default behavior of the `get_lr` method to support warmup and decay.
+        
+        We also handle two cases: 
+        1. parameter group having a single 'lr' value; 
+        2. parameter group having multiple learning rates under the 'group_lrs' key. 
+        """
+        # Case 1: warmup phase
         if self._step_count < self.warmup_steps:
-            return [self.learning_rate * self._step_count / self.warmup_steps
-                    for group in self.optimizer.param_groups]
-        if self._step_count > self.lr_decay_steps:
-            return [self.min_lr for group in self.optimizer.param_groups]
+            return [self.get_warmup_lr(group['lr']) for group in self.optimizer.param_groups]
+            # return [self.learning_rate * self._step_count / self.warmup_steps
+            #         for group in self.optimizer.param_groups]
+        
+        # Case 2: Post-decay phase
+        elif self._step_count > self.lr_decay_steps:
+            return [self.get_min_lr(group['lr']) for group in self.optimizer.param_groups]
         
         decay_ratio = (
             (self._step_count - self.warmup_steps)
@@ -90,8 +113,7 @@ class CosineAnnealingWarmup(_LRScheduler):
         )
         assert 0 <= decay_ratio <= 1
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-        return [self.min_lr + coeff * (self.learning_rate - self.min_lr)
-                for group in self.optimizer.param_groups]
+        return [self.get_decay_lr(group['lr'], coeff) for group in self.optimizer.param_groups]
         
         
 def MRR_fn(
